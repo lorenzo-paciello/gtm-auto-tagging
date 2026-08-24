@@ -1,0 +1,5 @@
+google-adk>=2.7.1
+google-api-python-client>=2.199.0
+google-auth-oauthlib>=1.4.0
+google-auth>=2.56.0
+python-dotenv>=1.0.0

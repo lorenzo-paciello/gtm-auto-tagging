@@ -1,0 +1,23 @@
+# Segredos e credenciais
+.env
+credentials/
+*.pickle
+*client_secret*.json
+
+# ADK
+.adk/
+*.db
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Documentacao gerada pelo usuario (descomente se nao quiser versionar)
+# custom_docs/
+
+# Editores
+.vscode/
+.idea/
