@@ -1,12 +1,12 @@
-"""Ferramentas de acesso a documentacao padrao de tagueamento.
+"""Access to the standard tagging documentation.
 
-Duas fontes sao expostas aos agentes:
+Two sources are exposed to the agents:
 
-* `default_docs/`  - documentacao padrao versionada com o projeto (GA4, Google
-  Ads, Floodlight, convencoes de nomenclatura e pastas).
-* `custom_docs/`   - documentacao do usuario, criada pela skill
-  `default-docs-builder`. Quando um arquivo custom trata do mesmo assunto, ele
-  tem PRECEDENCIA sobre o padrao.
+* `default_docs/` - the standard documentation shipped with the project (GA4,
+  Google Ads, Floodlight, naming and folder conventions).
+* `custom_docs/`  - the user's own documentation, written by the
+  `default-docs-builder` skill. When a custom file covers the same relative
+  path, it TAKES PRECEDENCE over the default one.
 """
 
 from __future__ import annotations
@@ -23,7 +23,10 @@ _SAFE_NAME = re.compile(r"^[A-Za-z0-9._\-/ ]+$")
 
 
 def _sources() -> list[tuple[str, Path]]:
-    return [("custom", settings.custom_docs_dir), ("default", settings.default_docs_dir)]
+    return [
+        ("custom", settings.custom_docs_dir),
+        ("default", settings.default_docs_dir),
+    ]
 
 
 def _iter_docs(base: Path) -> list[Path]:
@@ -44,7 +47,7 @@ def _first_heading(path: Path) -> str:
 
 
 def _resolve(doc_path: str) -> Optional[tuple[str, Path]]:
-    """Resolve um caminho relativo de doc contra as duas fontes, com seguranca."""
+    """Resolve a relative doc path against both sources, safely."""
     candidate = doc_path.strip().lstrip("/\\")
     if not candidate or not _SAFE_NAME.match(candidate) or ".." in candidate:
         return None
@@ -57,7 +60,7 @@ def _resolve(doc_path: str) -> Optional[tuple[str, Path]]:
         target = (base / candidate).resolve()
         try:
             target.relative_to(base.resolve())
-        except ValueError:  # tentativa de sair do diretorio base
+        except ValueError:  # attempt to escape the base directory
             continue
         if target.is_file():
             return source, target
@@ -65,15 +68,15 @@ def _resolve(doc_path: str) -> Optional[tuple[str, Path]]:
 
 
 def list_docs() -> dict[str, Any]:
-    """Lista a documentacao de tagueamento disponivel para consulta.
+    """List the tagging documentation available for consultation.
 
-    Chame SEMPRE antes de criar tags ou auditar o container: e essa
-    documentacao que define eventos, parametros e convencoes que o projeto
-    considera corretos. Documentos em `custom` sobrepoem os `default`.
+    ALWAYS call this before creating tags or auditing a container: this
+    documentation defines which events, parameters and conventions the project
+    considers correct. Documents from `custom` override those from `default`.
 
     Returns:
-        Dicionario com `docs` (path, title, source, size_kb) e os diretorios
-        consultados.
+        A dict with `docs` (path, title, source, size_kb) and the directories
+        that were searched.
     """
     docs: list[dict[str, Any]] = []
     for source, base in _sources():
@@ -92,26 +95,26 @@ def list_docs() -> dict[str, Any]:
         "docs": docs,
         "default_docs_dir": str(settings.default_docs_dir),
         "custom_docs_dir": str(settings.custom_docs_dir),
-        "precedence": "Documentos com source='custom' prevalecem sobre 'default'.",
+        "precedence": "Documents with source='custom' win over 'default'.",
     }
 
 
 def read_doc(doc_path: str) -> dict[str, Any]:
-    """Le um documento da documentacao padrao ou customizada.
+    """Read one document from the standard or custom documentation.
 
     Args:
-        doc_path: caminho relativo retornado por `list_docs`
-            (ex.: "ga4/events_ecommerce.md"). A extensao .md e opcional.
+        doc_path: relative path as returned by `list_docs`
+            (e.g. "ga4/events_ecommerce.md"). The .md extension is optional.
 
     Returns:
-        Dicionario com `content`, ou `error` se o documento nao existir.
+        A dict with `content`, or `error` when the document does not exist.
     """
     resolved = _resolve(doc_path)
     if not resolved:
         available = [d["path"] for d in list_docs()["docs"]]
         return {
             "error": "doc_not_found",
-            "message": f"Documento '{doc_path}' nao encontrado.",
+            "message": f"Document '{doc_path}' not found.",
             "available": available,
         }
 
@@ -127,20 +130,20 @@ def read_doc(doc_path: str) -> dict[str, Any]:
 
 
 def search_docs(query: str) -> dict[str, Any]:
-    """Busca um termo na documentacao e devolve os trechos correspondentes.
+    """Search the documentation for a term and return the matching lines.
 
-    Mais economico que ler um documento inteiro quando voce procura por um
-    evento, parametro ou tipo de tag especifico.
+    Cheaper than reading a whole document when you are after one specific
+    event, parameter or tag type.
 
     Args:
-        query: termo a procurar (ex.: "purchase", "Floodlight", "awct").
+        query: the term to look for (e.g. "purchase", "Floodlight", "awct").
 
     Returns:
-        Dicionario com `matches` (path, line, excerpt).
+        A dict with `matches` (path, line, excerpt).
     """
     term = query.strip().lower()
     if not term:
-        return {"error": "invalid_arguments", "message": "query nao pode ser vazio."}
+        return {"error": "invalid_arguments", "message": "query must not be empty."}
 
     matches: list[dict[str, Any]] = []
     for source, base in _sources():
@@ -167,32 +170,39 @@ def search_docs(query: str) -> dict[str, Any]:
                             "matches": matches,
                         }
 
-    return {"query": query, "count": len(matches), "truncated": False, "matches": matches}
+    return {
+        "query": query,
+        "count": len(matches),
+        "truncated": False,
+        "matches": matches,
+    }
 
 
-def save_custom_doc(doc_path: str, content: str, overwrite: bool = False) -> dict[str, Any]:
-    """Grava um documento na documentacao customizada do usuario.
+def save_custom_doc(
+    doc_path: str, content: str, overwrite: bool = False
+) -> dict[str, Any]:
+    """Write a document into the user's custom documentation.
 
-    Ferramenta usada pela skill `default-docs-builder` para materializar a
-    documentacao padrao que o usuario definir. Escreve apenas dentro de
-    `custom_docs/`; nunca altera `default_docs/`.
+    Used by the `default-docs-builder` skill to materialize the standard
+    documentation the user defines. It only ever writes inside `custom_docs/`;
+    it never touches `default_docs/`.
 
     Args:
-        doc_path: caminho relativo do arquivo dentro de custom_docs
-            (ex.: "ga4/eventos_do_cliente.md"). Subpastas sao criadas.
-        content: conteudo Markdown completo do documento.
-        overwrite: quando False (padrao), falha se o arquivo ja existir.
+        doc_path: relative file path inside custom_docs
+            (e.g. "ga4/client_events.md"). Subfolders are created as needed.
+        content: the complete Markdown content of the document.
+        overwrite: when False (default), fail if the file already exists.
 
     Returns:
-        Dicionario com o caminho absoluto gravado.
+        A dict with the absolute path that was written.
     """
     candidate = doc_path.strip().lstrip("/\\")
     if not candidate or not _SAFE_NAME.match(candidate) or ".." in candidate:
         return {
             "error": "invalid_path",
             "message": (
-                "doc_path deve ser um caminho relativo simples, sem '..'. "
-                'Ex.: "ga4/eventos_do_cliente.md".'
+                "doc_path must be a simple relative path, without '..'. "
+                'e.g. "ga4/client_events.md".'
             ),
         }
     if not candidate.lower().endswith(".md"):
@@ -203,14 +213,14 @@ def save_custom_doc(doc_path: str, content: str, overwrite: bool = False) -> dic
     try:
         target.relative_to(base)
     except ValueError:
-        return {"error": "invalid_path", "message": "Caminho fora de custom_docs."}
+        return {"error": "invalid_path", "message": "Path escapes custom_docs."}
 
     if target.exists() and not overwrite:
         return {
             "error": "already_exists",
             "message": (
-                f"'{candidate}' ja existe. Leia com read_doc e confirme com o "
-                "usuario antes de chamar novamente com overwrite=true."
+                f"'{candidate}' already exists. Read it with read_doc, confirm "
+                "with the user, then call again with overwrite=true."
             ),
         }
 

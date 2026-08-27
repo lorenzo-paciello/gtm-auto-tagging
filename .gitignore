@@ -21,3 +21,6 @@ venv/
 # Editores
 .vscode/
 .idea/
+
+# Usage telemetry (local only)
+usage/

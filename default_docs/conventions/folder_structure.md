@@ -1,62 +1,63 @@
-# Estrutura de pastas do container (padrao do projeto)
+# Container folder structure (project standard)
 
-Criterio usado pelo `container_organizer_agent`.
+The criterion used by `container_organizer_agent`.
 
-> Para adotar outro criterio, crie `custom_docs/conventions/folder_structure.md`.
+> To adopt a different criterion, create
+> `custom_docs/conventions/folder_structure.md`.
 
-## Criterio primario: por midia / ferramenta
+## Primary criterion: by media / tool
 
-E o criterio que sobrevive melhor ao tempo. Ferramentas entram e saem do
-container em bloco (encerrou o contrato com a midia X, remove-se a pasta X);
-funcoes de negocio se espalham por varias ferramentas.
+This is the criterion that survives time best. Tools enter and leave a
+container as a block (the contract with media vendor X ended, remove folder X);
+business functions spread across several tools.
 
-| Pasta | O que entra | O que NAO entra |
+| Folder | What goes in | What does NOT |
 | --- | --- | --- |
-| `Google Tag` | tag base `googtag` e suas variaveis de configuracao | eventos |
-| `GA4` | tags `gaawe`, acionadores e variaveis exclusivos de GA4 | variaveis compartilhadas |
-| `Google Ads` | `awct`, `sp`, `gclidw` e variaveis de conversao | |
-| `Floodlight` | `flc`, `fls` e variaveis de activity | |
-| `<Midia paga>` | pixels e eventos de Meta, LinkedIn, TikTok etc., uma pasta por ferramenta | |
-| `Consentimento` | CMP, Consent Mode, acionadores de inicializacao de consentimento | |
-| `Utilitarios` | variaveis e acionadores usados por **duas ou mais** pastas | qualquer tag |
-| `Terceiros` | chats, testes A/B, heatmaps, scripts sem categoria de midia | |
-| `Depreciado` | entidades pausadas aguardando remocao | |
+| `Google Tag` | the `googtag` base tag and its configuration variables | events |
+| `GA4` | `gaawe` tags, triggers and variables exclusive to GA4 | shared variables |
+| `Google Ads` | `awct`, `sp`, `gclidw` and conversion variables | |
+| `Floodlight` | `flc`, `fls` and activity variables | |
+| `<Paid media>` | Meta, LinkedIn, TikTok pixels and events, one folder per tool | |
+| `Consent` | CMP, Consent Mode, consent initialization triggers | |
+| `Utilities` | variables and triggers used by **two or more** folders | any tag |
+| `Third parties` | chat, A/B testing, heatmaps, scripts with no media category | |
+| `Deprecated` | paused entities awaiting removal | |
 
-## Criterio alternativo: por funcao / jornada
+## Alternative criterion: by function / journey
 
-Use quando o container tem uma unica ferramenta dominante (tipicamente so GA4)
-e mais de 60 tags.
+Use it when the container has a single dominant tool (typically GA4 only) and
+more than 60 tags.
 
-| Pasta | Conteudo |
+| Folder | Contents |
 | --- | --- |
-| `Base` | configuracao, consentimento, linker |
-| `Ecommerce` | funil `view_item` -> `purchase` |
-| `Formularios` | `generate_lead`, `form_start`, `form_submit` |
-| `Engajamento` | scroll, video, download, cliques |
-| `Conta` | `login`, `sign_up` |
-| `Utilitarios` | compartilhados |
+| `Base` | configuration, consent, linker |
+| `Ecommerce` | the `view_item` -> `purchase` funnel |
+| `Forms` | `generate_lead`, `form_start`, `form_submit` |
+| `Engagement` | scroll, video, download, clicks |
+| `Account` | `login`, `sign_up` |
+| `Utilities` | shared |
 
-## Regras
+## Rules
 
-1. **Uma entidade, uma pasta.** O GTM nao permite duas.
-2. **Compartilhado vai para `Utilitarios`.** Uma `DLV - ecommerce` usada por
-   GA4, Google Ads e Floodlight nao pertence a nenhuma das tres.
-3. **Toda tag nova nasce em uma pasta.** `parentFolderId` preenchido na
-   criacao, nao depois.
-4. **Nao crie pastas por pessoa, data, projeto ou sprint.** Elas envelhecem em
-   semanas.
-5. **Nao crie nomes proximos.** `GA4` e `GA 4` na mesma lista sao um desastre.
-   Cheque `list_folders` antes de criar.
-6. **Pasta vazia deve ser removida** na proxima revisao.
-7. Acionadores e variaveis exclusivos de uma ferramenta acompanham a pasta
-   dela. So o que e realmente compartilhado sai.
+1. **One entity, one folder.** GTM does not allow two.
+2. **Shared goes to `Utilities`.** A `DLV - ecommerce` used by GA4, Google Ads
+   and Floodlight belongs to none of the three.
+3. **Every new tag is born in a folder.** `parentFolderId` set at creation
+   time, not afterwards.
+4. **Never create folders per person, date, project or sprint.** They go stale
+   in weeks.
+5. **Never create near-duplicate names.** `GA4` and `GA 4` in the same list is
+   a disaster. Check `list_folders` before creating.
+6. **Empty folders should be removed** at the next review.
+7. Triggers and variables exclusive to a tool follow that tool's folder. Only
+   genuinely shared items move out.
 
-## Quando a pasta nao resolve
+## When folders stop being enough
 
-Se o container passa de ~150 tags, pasta vira paliativo. Considere:
+Past roughly 150 tags, folders are a stopgap. Consider:
 
-- separar containers por dominio ou por area de negocio;
-- mover a coleta para um container server-side;
-- usar zonas (GTM 360) para delegar partes do container a times distintos.
+- splitting containers by domain or by business area;
+- moving collection to a server-side container;
+- using zones (GTM 360) to delegate parts of the container to different teams.
 
-Registre a recomendacao na auditoria em vez de criar uma vigesima pasta.
+Record the recommendation in the audit instead of creating a twentieth folder.

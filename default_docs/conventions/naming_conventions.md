@@ -1,109 +1,112 @@
-# Convencoes de nomenclatura (padrao do projeto)
+# Naming conventions (project standard)
 
-Padrao usado pelo `tags_creator_agent` ao criar entidades e pelo
-`container_organizer_agent` ao propor renomeacoes.
+The standard used by `tags_creator_agent` when creating entities and by
+`container_organizer_agent` when proposing renames.
 
-> Para adotar outro padrao, crie `custom_docs/conventions/naming_conventions.md`.
-> Ele sobrepoe este arquivo.
+> To adopt a different standard, create
+> `custom_docs/conventions/naming_conventions.md`. It overrides this file.
 
-## Principio
+## Principle
 
-O nome responde tres perguntas sem abrir a entidade: **qual ferramenta**,
-**que tipo de coisa e**, **o que faz**.
+The name answers three questions without opening the entity: **which tool**,
+**what kind of thing it is**, **what it does**.
 
 ## Tags
 
 ```
-<FERRAMENTA> - <TIPO> - <DESCRICAO>
+<TOOL> - <TYPE> - <DESCRIPTION>
 ```
 
-| Exemplo | Leitura |
+| Example | Reads as |
 | --- | --- |
-| `GA4 - Event - purchase` | evento de compra no GA4 |
-| `GA4 - Event - generate_lead` | evento de lead no GA4 |
-| `Google Tag - GA4 + Ads` | tag base do Google |
-| `Google Ads - Conversion - Compra` | conversao de compra |
+| `GA4 - Event - purchase` | GA4 purchase event |
+| `GA4 - Event - generate_lead` | GA4 lead event |
+| `Google Tag - GA4 + Ads` | the Google base tag |
+| `Google Ads - Conversion - Purchase` | purchase conversion |
 | `Google Ads - Remarketing - Global` | remarketing |
 | `Google Ads - Conversion Linker` | conversion linker |
-| `Floodlight - Sales - Compra` | floodlight de venda |
-| `Floodlight - Counter - Lead` | floodlight de contagem |
-| `Meta - Pixel - Base` | pixel base do Meta |
-| `Meta - Event - Purchase` | evento do Meta |
-| `Custom HTML - Chat Widget` | script de terceiro sem template |
+| `Floodlight - Sales - Purchase` | floodlight sale |
+| `Floodlight - Counter - Lead` | floodlight count |
+| `Meta - Pixel - Base` | Meta base pixel |
+| `Meta - Event - Purchase` | Meta event |
+| `Custom HTML - Chat Widget` | third-party script with no template |
 
-Contra-exemplos (nao use): `ga4 purchase`, `Tag de compra`,
-`GA4_Event_Purchase`, `[GA4] purchase`, `Tag 12`, `purchase - joao`.
+Counter-examples (do not use): `ga4 purchase`, `Purchase tag`,
+`GA4_Event_Purchase`, `[GA4] purchase`, `Tag 12`, `purchase - john`.
 
-## Acionadores
+## Triggers
 
 ```
-<PREFIXO> - <CONDICAO>
+<PREFIX> - <CONDITION>
 ```
 
-| Prefixo | Tipo | Exemplo |
+| Prefix | Type | Example |
 | --- | --- | --- |
-| `CE` | evento personalizado | `CE - purchase` |
-| `PV` | pageview | `PV - Checkout` |
-| `DOM` | DOM ready | `DOM - Todas as paginas` |
+| `CE` | custom event | `CE - purchase` |
+| `PV` | page view | `PV - Checkout` |
+| `DOM` | DOM ready | `DOM - All pages` |
 | `WIN` | window loaded | `WIN - Home` |
-| `CLK` | clique | `CLK - Botao Comprar` |
-| `LINK` | clique em link | `LINK - Saida externa` |
-| `FORM` | envio de formulario | `FORM - Contato` |
-| `VIS` | visibilidade | `VIS - Banner Home` |
-| `SCROLL` | rolagem | `SCROLL - 75% Blog` |
-| `TIMER` | cronometro | `TIMER - 30s` |
-| `HIST` | mudanca de historico | `HIST - SPA` |
-| `INIT` | inicializacao | `INIT - Consentimento` |
-| `EXC` | excecao / bloqueio | `EXC - Homologacao` |
-| `GRP` | grupo de acionadores | `GRP - Consentimento + Pageview` |
+| `CLK` | click | `CLK - Buy button` |
+| `LINK` | link click | `LINK - Outbound` |
+| `FORM` | form submission | `FORM - Contact` |
+| `VIS` | element visibility | `VIS - Home banner` |
+| `SCROLL` | scroll depth | `SCROLL - 75% Blog` |
+| `TIMER` | timer | `TIMER - 30s` |
+| `HIST` | history change | `HIST - SPA` |
+| `INIT` | initialization | `INIT - Consent` |
+| `EXC` | exception / blocking | `EXC - Staging` |
+| `GRP` | trigger group | `GRP - Consent + Pageview` |
 
-Para eventos GA4, o nome do evento entra **exatamente como esta no dataLayer**:
-`CE - add_to_cart`, nunca `CE - Adicionar ao carrinho`.
+For GA4 events, the event name goes in **exactly as it appears in the
+dataLayer**: `CE - add_to_cart`, never `CE - Add to cart`.
 
-## Variaveis
+Built-in triggers (All Pages, Initialization, Consent Initialization) keep
+their reserved names -- do not recreate or rename them.
+
+## Variables
 
 ```
-<PREFIXO> - <FONTE>
+<PREFIX> - <SOURCE>
 ```
 
-| Prefixo | Tipo (`type`) | Exemplo |
+| Prefix | Type (`type`) | Example |
 | --- | --- | --- |
-| `DLV` | `v` - camada de dados | `DLV - ecommerce.transaction_id` |
-| `CONST` | `c` - constante | `CONST - GA4 Measurement ID` |
-| `CJS` | `jsm` - JavaScript personalizado | `CJS - Normaliza Email` |
-| `JS` | `j` - variavel JavaScript | `JS - document.title` |
+| `DLV` | `v` - data layer | `DLV - ecommerce.transaction_id` |
+| `CONST` | `c` - constant | `CONST - GA4 Measurement ID` |
+| `CJS` | `jsm` - custom JavaScript | `CJS - Normalize Email` |
+| `JS` | `j` - JavaScript variable | `JS - document.title` |
 | `URL` | `u` - URL | `URL - utm_source` |
-| `COOKIE` | `k` - cookie proprio | `COOKIE - user_id` |
-| `DOM` | `d` - elemento DOM | `DOM - Preco do produto` |
-| `LT` | `smm` - tabela de pesquisa | `LT - Ambiente por Hostname` |
-| `RT` | `remm` - tabela regex | `RT - Tipo de pagina por URL` |
-| `AEV` | `aev` - evento automatico | `AEV - Click Text` |
+| `COOKIE` | `k` - 1st party cookie | `COOKIE - user_id` |
+| `DOM` | `d` - DOM element | `DOM - Product price` |
+| `LT` | `smm` - lookup table | `LT - Environment by Hostname` |
+| `RT` | `remm` - regex table | `RT - Page type by URL` |
+| `AEV` | `aev` - auto-event variable | `AEV - Click Text` |
 
-Em `DLV`, use o caminho real do dataLayer no nome: `DLV - ecommerce.value` diz
-o que a variavel le; `DLV - Valor` nao diz nada.
+For `DLV`, put the real dataLayer path in the name:
+`DLV - ecommerce.value` says what the variable reads; `DLV - Value` says
+nothing.
 
-## Pastas
+## Folders
 
-Nome curto, sem prefixo: `GA4`, `Google Ads`, `Floodlight`, `Meta`,
-`Consentimento`, `Utilitarios`, `Depreciado`. Ver
-`conventions/folder_structure.md`.
+Short name, no prefix: `GA4`, `Google Ads`, `Floodlight`, `Meta`, `Consent`,
+`Utilities`, `Deprecated`. See `conventions/folder_structure.md`.
 
-## Regras gerais
+## General rules
 
-1. Separador ` - ` (espaco, hifen, espaco). Nunca `_`, `|`, `/` ou `::`.
-2. Sem acentos e sem caracteres especiais nos nomes de entidade.
-3. Sem numeracao sequencial, sem data, sem nome de pessoa.
-4. Ambiente, quando existir, vai no fim entre colchetes:
+1. Separator ` - ` (space, hyphen, space). Never `_`, `|`, `/` or `::`.
+2. No accents and no special characters in entity names.
+3. No sequential numbering, no dates, no person names.
+4. Environment, when present, goes at the end in brackets:
    `GA4 - Event - purchase [STG]`.
-5. Toda entidade critica tem `notes` com: requisito de origem, data e
-   responsavel.
-6. Nomes sao unicos dentro de cada tipo. Nome duplicado e achado de auditoria.
+5. Every critical entity has `notes` with the originating requirement, the date
+   and the owner.
+6. Names are unique within each type. A duplicate name is an audit finding.
 
-## Nota sobre renomear
+## A note on renaming
 
-Renomear uma **variavel** nao atualiza as referencias `{{Nome antigo}}` dentro
-de tags e acionadores. A referencia orfa passa a devolver string vazia, sem
-erro visivel. Antes de renomear qualquer variavel: liste onde ela e usada,
-atualize as referencias e so entao renomeie.
+Renaming a **variable** does not update the `{{Old name}}` references inside
+tags and triggers. The orphaned reference starts returning an empty string,
+with no visible error. Before renaming any variable: list where it is used,
+update the references, and only then rename.
 
-Renomear tags, acionadores e pastas e seguro - as referencias sao por id.
+Renaming tags, triggers and folders is safe -- those references are by id.

@@ -1,102 +1,122 @@
-# Checklist de auditoria de container GTM
+# GTM container audit checklist
 
-Lista percorrida pelo `auditor_agent`. Cada item recebe **OK / Ajustar / Nao se
-aplica**, com evidencia (nome e id da entidade).
+The list `auditor_agent` walks through. Each item gets **OK / Fix / N/A**, with
+evidence (entity name and id).
 
-> Para adotar outro checklist, crie `custom_docs/conventions/audit_checklist.md`.
+> To adopt a different checklist, create
+> `custom_docs/conventions/audit_checklist.md`.
 
-## 1. Base e ordem de carregamento
+## 1. Foundation and load order
 
-- [ ] Existe uma unica tag base do Google (`googtag` ou `gaawc`), sem duplicata
-- [ ] Consent Initialization dispara antes de qualquer outra tag
-- [ ] Conversion Linker (`gclidw`) presente e disparando em todas as paginas
-- [ ] Nenhuma tag de midia dispara antes do consentimento
-- [ ] Sem tags de Universal Analytics (`ua`) ativas
+- [ ] Exactly one Google base tag (`googtag` or `gaawc`) per destination
+- [ ] No duplicate base tags pointing at the same measurement id
+- [ ] Every base tag has a firing trigger and is not paused
+- [ ] Consent Initialization fires before any other tag
+- [ ] Conversion Linker (`gclidw`) present and firing on all pages
+- [ ] No advertising tag fires before consent is known
+- [ ] No Universal Analytics (`ua`) tags still active
+- [ ] No event tag whose product foundation is missing (`check_tagging_prerequisites`)
 
 ## 2. GA4
 
-- [ ] Measurement ID vem de variavel constante, nao escrito na tag
-- [ ] Nao ha tag `gaawe` duplicando evento da medicao aprimorada
+- [ ] Measurement ID comes from a constant variable, not typed into the tag
+- [ ] No `gaawe` tag duplicating an enhanced measurement event
       (`page_view`, `scroll`, `click`, `file_download`, `form_start`,
       `form_submit`, `video_*`, `view_search_results`)
-- [ ] Nomes de evento em `snake_case`, ate 40 caracteres, sem prefixo reservado
-- [ ] Eventos usam o nome recomendado pelo Google quando existe equivalente
-- [ ] Nenhum evento carrega segmentacao no nome (`purchase_mobile`)
-- [ ] Eventos de ecommerce leem o objeto `ecommerce` do dataLayer
-- [ ] `purchase` tem `transaction_id`, `value` e `currency`
-- [ ] Parametros customizados estao registrados como dimensao/metrica no GA4
-- [ ] Nenhum valor de texto ultrapassa 100 caracteres
+- [ ] Event names in `snake_case`, up to 40 characters, no reserved prefix
+- [ ] Events use Google's recommended name where an equivalent exists
+- [ ] No event carries a segmentation in its name (`purchase_mobile`)
+- [ ] Ecommerce events read the `ecommerce` object from the dataLayer
+- [ ] `purchase` has `transaction_id`, `value` and `currency`
+- [ ] Custom parameters are registered as custom dimensions/metrics in GA4
+- [ ] No text value exceeds 100 characters
 
-## 3. Midia paga
+## 3. Paid media
 
-- [ ] `conversionId` / `conversionLabel` vindos de variaveis
-- [ ] Conversoes de compra com `orderId` (deduplicacao)
-- [ ] `currencyCode` presente sempre que ha valor
-- [ ] Sem dupla contagem: tag `awct` convivendo com conversao importada do GA4
-- [ ] Floodlight `fls` com `orderId` preenchido
-- [ ] `groupTag` / `activityTag` documentados em `notes`
-- [ ] Variaveis customizadas `uN` do Floodlight documentadas
+- [ ] `conversionId` / `conversionLabel` come from variables
+- [ ] Purchase conversions carry `orderId` (deduplication)
+- [ ] `currencyCode` present whenever a value is sent
+- [ ] No double counting: an `awct` tag alongside a GA4-imported conversion
+- [ ] Floodlight `fls` has `orderId` filled
+- [ ] `groupTag` / `activityTag` documented in `notes`
+- [ ] Floodlight `uN` custom variables documented
 
-## 4. Consentimento e privacidade
+## 4. Consent and privacy
 
-- [ ] `consentSettings` declarado nas tags de midia
-- [ ] Modo de consentimento (basico ou avancado) identificado e documentado
-- [ ] Nenhum dado pessoal em claro (e-mail, telefone, CPF) em variavel ou tag
-- [ ] Enhanced Conversions usa `user_data` nativo ou hash SHA-256
-- [ ] Nenhuma tag de terceiro coletando dado nao declarado na politica
+- [ ] `consentSettings` declared on advertising tags
+- [ ] The consent mode in use (basic or advanced) is identified and documented
+- [ ] No plain personal data (email, phone, national id) in a variable or tag
+- [ ] Enhanced Conversions use the native `user_data` field or SHA-256 hashing
+- [ ] No third-party tag collecting data not declared in the privacy policy
 
-## 5. Acionadores
+## 5. Triggers
 
-- [ ] Nenhuma tag com `firingTriggerId` vazio
-- [ ] Acionadores reutilizados entre midias, sem clones por ferramenta
-- [ ] `purchase` nao dispara mais de uma vez por pedido (refresh, SPA)
-- [ ] Bloqueios de ambiente de homologacao configurados
-- [ ] Built-in variables necessarias habilitadas para os acionadores em uso
+- [ ] No tag with an empty `firingTriggerId`
+- [ ] Triggers reused across media, with no per-tool clones
+- [ ] No duplicate "All Pages" trigger next to the built-in one
+- [ ] `purchase` does not fire more than once per order (refresh, SPA)
+- [ ] Staging environment blocking configured
+- [ ] The built-in variables the active triggers need are enabled
 
-## 6. Variaveis
+## 6. Variables, references and identifiers
 
-- [ ] Data Layer Variables com `dataLayerVersion: 2`
-- [ ] IDs de medicao e conversao em constantes
-- [ ] Variaveis `jsm` com `notes` explicando o que fazem
-- [ ] Sem variaveis com nome duplicado
-- [ ] Sem referencias `{{Nome}}` apontando para variavel inexistente
+- [ ] Data Layer Variables use `dataLayerVersion: 2`
+- [ ] Measurement and conversion ids live in constants
+- [ ] `jsm` variables have `notes` explaining what they do
+- [ ] No duplicate variable names
+- [ ] `find_broken_references()` returns `clean: true`
+- [ ] `check_id_consistency()` returns `clean: true`
 
-## 7. Organizacao
+These two tools cover four failures that are invisible in the GTM UI:
 
-- [ ] Toda entidade em uma pasta
-- [ ] Nomes seguem `conventions/naming_conventions.md`
-- [ ] Sem nomes duplicados dentro de cada tipo
-- [ ] `notes` preenchido nas entidades criticas
-- [ ] Sem pastas com nomes proximos (`GA4` e `GA 4`)
-
-## 8. Higiene
-
-- [ ] Sem acionadores orfaos (nenhuma tag os referencia)
-- [ ] Sem variaveis sem uso aparente (verificar as `jsm` manualmente)
-- [ ] Tags pausadas tem justificativa e prazo
-- [ ] Sem `html` fazendo o que uma tag nativa ou template ja faz
-- [ ] Workspace sem conflito de merge pendente
-
-## 9. Cobertura
-
-- [ ] Todos os eventos criticos da documentacao estao implementados
-- [ ] Cada evento implementado tem os parametros obrigatorios
-- [ ] Conversoes de midia cobrem os mesmos eventos de negocio do GA4
-- [ ] Eventos de erro e de falha de formulario existem (o funil que ninguem mede)
-
-## Severidade
-
-| Nivel | Criterio |
+| Failure | What actually happens |
 | --- | --- |
-| **Critico** | dado sendo perdido, duplicado ou enviado errado; risco legal |
-| **Alto** | risco de compliance ou de manutencao que ainda nao quebrou |
-| **Medio** | organizacao, legibilidade, documentacao |
-| **Baixo** | limpeza e higiene |
+| `{{Name}}` pointing at nothing | resolves to an empty string; the tag fires and sends blank |
+| Tag with no firing trigger | never executes |
+| A destination id no base tag configures | the tag fires and the data goes to a property nobody watches |
+| Two variables differing only in case | fixing one leaves the tags on the other still empty |
 
-## Formato do relatorio
+The third is the one an eyeball audit never finds: `G-0987654321` is a
+perfectly valid measurement id, and nothing compares it against the `G-` the
+container's Google Tag actually configures. `check_id_consistency` resolves
+constant variables first, so it compares by value rather than by name.
 
-1. Resumo executivo (3 a 5 linhas) + nota de 0 a 10 justificada
-2. Numeros do container por produto
-3. Tabela: severidade | entidade (id) | problema | recomendacao
-4. Cobertura de eventos: implementado x faltando
-5. Plano de acao priorizado, indicando o sub agente responsavel por cada item
+## 7. Organization
+
+- [ ] Every entity is in a folder
+- [ ] Names follow `conventions/naming_conventions.md`
+- [ ] No duplicate names within a type
+- [ ] `notes` filled on the critical entities
+- [ ] No near-duplicate folder names (`GA4` and `GA 4`)
+
+## 8. Hygiene
+
+- [ ] No orphan triggers (no tag references them)
+- [ ] No apparently unused variables (verify the `jsm` ones by hand)
+- [ ] Paused tags have a justification and a deadline
+- [ ] No `html` doing what a native tag or template already does
+- [ ] The workspace has no pending merge conflicts
+
+## 9. Coverage
+
+- [ ] Every critical event from the documentation is implemented
+- [ ] Each implemented event carries its required parameters
+- [ ] Media conversions cover the same business events as GA4
+- [ ] Error and form-failure events exist (the funnel nobody measures)
+
+## Severity
+
+| Level | Criterion |
+| --- | --- |
+| **Critical** | data lost, duplicated or sent wrong; legal risk |
+| **High** | compliance or maintenance risk that has not broken yet |
+| **Medium** | organization, readability, documentation |
+| **Low** | cleanup and hygiene |
+
+## Report format
+
+1. Executive summary (3 to 5 lines) + a justified 0-10 score
+2. Container numbers per product
+3. Table: severity | entity (id) | problem | recommendation
+4. Event coverage: implemented vs missing
+5. Prioritized action plan, naming the sub agent responsible for each item

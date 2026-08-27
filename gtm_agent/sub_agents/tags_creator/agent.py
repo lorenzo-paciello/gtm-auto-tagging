@@ -1,25 +1,27 @@
-"""Sub agente de criacao de tags, acionadores e variaveis no GTM."""
+"""Sub agent that creates tags, triggers and variables in GTM."""
 
 from __future__ import annotations
 
 from google.adk.agents.llm_agent import Agent
 
-from ...config import settings
+from ...models import resolve_model
 from ...prompts import CREATOR_INSTRUCTION
+from ...prompts import static_instruction
 from ...tools import DOC_TOOLS
 from ...tools import READ_TOOLS
 from ...tools import WRITE_TOOLS
 
 tags_creator_agent = Agent(
-    model=settings.model_reasoning,
+    model=resolve_model("reasoning"),
     name="tags_creator_agent",
     description=(
-        "Cria e ajusta tags, acionadores e variaveis no workspace do GTM, "
-        "seguindo a documentacao padrao de eventos (GA4, Google Ads, "
-        "Floodlight, Google Tag). Use para pedidos do tipo 'crie a tag de "
-        "purchase', 'implemente a conversao do Google Ads', 'preciso do evento "
-        "generate_lead'. Escreve no rascunho, nunca publica."
+        "Creates and adjusts tags, triggers and variables in the GTM "
+        "workspace, following the standard event documentation (GA4, Google "
+        "Ads, Floodlight, Google Tag) and verifying foundation tags first. Use "
+        "it for requests like 'create the purchase tag', 'implement the Google "
+        "Ads conversion', 'I need the generate_lead event'. Writes to the "
+        "draft, never publishes."
     ),
-    instruction=CREATOR_INSTRUCTION,
+    instruction=static_instruction(CREATOR_INSTRUCTION),
     tools=[*DOC_TOOLS, *READ_TOOLS, *WRITE_TOOLS],
 )

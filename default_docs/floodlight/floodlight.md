@@ -1,50 +1,50 @@
 # Floodlight (Campaign Manager 360 / Display & Video 360)
 
-Floodlight mede conversoes das campanhas de display e video do Google Marketing
-Platform. A configuracao vem do CM360; o GTM apenas dispara a tag.
+Floodlight measures conversions from Google Marketing Platform display and
+video campaigns. The configuration lives in CM360; GTM only fires the tag.
 
-## Tipos de tag
+## Tag types
 
-| `type` | Nome | Uso |
+| `type` | Name | Use |
 | --- | --- | --- |
-| `flc` | Floodlight Counter | conta acoes: pageview, lead, visita a uma secao |
-| `fls` | Floodlight Sales | conta transacoes com receita e quantidade |
+| `flc` | Floodlight Counter | counts actions: page views, leads, visits to a section |
+| `fls` | Floodlight Sales | counts transactions with revenue and quantity |
 
-## Parametros
+## Parameters
 
 ### Counter (`flc`)
 
-| Parametro | Descricao |
+| Parameter | Description |
 | --- | --- |
-| `advertiserId` | id do anunciante no CM360 (`src=`) |
-| `groupTag` | Group Tag String (`cat=` no nivel de grupo, ex.: `lead`) |
-| `activityTag` | Activity Tag String (`type=`, ex.: `contato0`) |
-| `countingMethod` | `STANDARD` (toda vez), `UNIQUE` (uma vez por usuario/dia), `PER_SESSION` |
-| `ordinalValue` | valor do `ord=`. Numero aleatorio para standard, `1` para unique |
-| `enableGoogleAttributionOptions` | ativa `attributionOptionImage` |
-| `customVariable` | tabela de variaveis `u1`..`u100` |
+| `advertiserId` | the CM360 advertiser id (`src=`) |
+| `groupTag` | Group Tag String (`cat=` at group level, e.g. `lead`) |
+| `activityTag` | Activity Tag String (`type=`, e.g. `contact0`) |
+| `countingMethod` | `STANDARD` (every time), `UNIQUE` (once per user/day), `PER_SESSION` |
+| `ordinalValue` | the `ord=` value. A random number for standard, `1` for unique |
+| `enableGoogleAttributionOptions` | enables `attributionOptionImage` |
+| `customVariable` | the `u1`..`u100` variable table |
 
 ### Sales (`fls`)
 
-| Parametro | Descricao |
+| Parameter | Description |
 | --- | --- |
-| `advertiserId` | id do anunciante |
-| `groupTag` / `activityTag` | idem counter |
-| `orderId` | id do pedido - **deduplicacao**, vai no `ord=` |
-| `revenue` | receita da transacao |
-| `quantity` | quantidade de itens |
-| `countingMethod` | `TRANSACTIONS` (uma linha por pedido) ou `ITEMS_SOLD` |
+| `advertiserId` | advertiser id |
+| `groupTag` / `activityTag` | same as counter |
+| `orderId` | the order id - **deduplication**, goes into `ord=` |
+| `revenue` | transaction revenue |
+| `quantity` | number of items |
+| `countingMethod` | `TRANSACTIONS` (one row per order) or `ITEMS_SOLD` |
 | `customVariable` | `u1`..`u100` |
 
-## Variaveis customizadas (`u1`..`u100`)
+## Custom variables (`u1`..`u100`)
 
-Sao os parametros extras do Floodlight, mapeados no CM360. O significado de
-cada `uN` e definido **na conta do CM360**, nao no GTM.
+These are Floodlight's extra parameters, mapped in CM360. What each `uN` means
+is defined **in the CM360 account**, not in GTM.
 
 ```json
 {
   "advertiserId": "1234567",
-  "groupTag": "compra",
+  "groupTag": "purchase",
   "activityTag": "trans0",
   "orderId": "{{DLV - ecommerce.transaction_id}}",
   "revenue": "{{DLV - ecommerce.value}}",
@@ -57,41 +57,44 @@ cada `uN` e definido **na conta do CM360**, nao no GTM.
 }
 ```
 
-Sempre peca ao usuario o **mapa de variaveis customizadas** do CM360 antes de
-preencher `uN`. Enviar dado no `u` errado polui o relatorio do anunciante e e
-dificil de detectar.
+Always ask the user for the CM360 **custom variable map** before filling in
+`uN`. Sending data into the wrong `u` pollutes the advertiser's reporting and
+is hard to detect afterwards.
 
 ## Cache buster (`ord=`)
 
-| Metodo de contagem | Valor de `ord` |
+| Counting method | `ord` value |
 | --- | --- |
-| Standard / Unique (counter) | numero aleatorio - a tag do GTM gera |
-| Per session (counter) | id da sessao |
-| Sales | `orderId` - garante deduplicacao |
+| Standard / Unique (counter) | a random number - the GTM tag generates it |
+| Per session (counter) | the session id |
+| Sales | `orderId` - guarantees deduplication |
 
-Em `fls`, `orderId` vazio faz o CM360 contar cada refresh como uma venda nova.
-Achado critico em auditoria.
+On `fls`, an empty `orderId` makes CM360 count every refresh as a new sale.
+Critical audit finding.
 
-## Pre-requisitos no container
+## Container prerequisites
 
-1. **Conversion Linker** (`gclidw`) em todas as paginas - Floodlight depende
-   dele para atribuicao em navegadores com restricao de cookie de terceiro.
-2. **Consent Mode** com `ad_storage` e `ad_user_data`.
-3. Se o site usa domain de mensuracao proprio, configure-o nas opcoes da tag.
+1. **Conversion Linker** (`gclidw`) on all pages - Floodlight depends on it for
+   attribution in browsers that restrict third-party cookies.
+2. **Consent Mode** with `ad_storage` and `ad_user_data`.
+3. If the site uses a first-party measurement domain, configure it in the tag
+   options.
 
-## Nomenclatura
+See `gtm/prerequisites.md`.
 
-`Floodlight - Counter - <acao>` e `Floodlight - Sales - <acao>`, com o
-`groupTag`/`activityTag` citados nas `notes` da tag. Sem isso, ninguem consegue
-relacionar a tag do GTM com a activity do CM360.
+## Naming
 
-## Checklist de auditoria
+`Floodlight - Counter - <action>` and `Floodlight - Sales - <action>`, with the
+`groupTag`/`activityTag` recorded in the tag `notes`. Without that, nobody can
+map a GTM tag back to a CM360 activity.
 
-- [ ] `advertiserId` correto e consistente entre as tags
-- [ ] `groupTag` e `activityTag` batem com as activities do CM360
-- [ ] `fls` com `orderId` preenchido
-- [ ] `countingMethod` coerente com o que a activity espera
-- [ ] Conversion Linker presente
-- [ ] `consentSettings` declarado
-- [ ] Variaveis `uN` documentadas nas `notes`
-- [ ] Sem Floodlight duplicado para a mesma activity
+## Audit checklist
+
+- [ ] `advertiserId` correct and consistent across tags
+- [ ] `groupTag` and `activityTag` match the CM360 activities
+- [ ] `fls` has `orderId` filled
+- [ ] `countingMethod` matches what the activity expects
+- [ ] Conversion Linker present
+- [ ] `consentSettings` declared
+- [ ] `uN` variables documented in `notes`
+- [ ] No duplicate Floodlight for the same activity

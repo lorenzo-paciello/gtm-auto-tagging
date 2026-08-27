@@ -1,94 +1,108 @@
-# Regras de qualidade para documentacao de tagueamento
+# Quality rules for tagging documentation
 
-Uma documentacao padrao serve a tres leitores: o analista que implementa, o
-desenvolvedor que precisa popular o dataLayer, e o agente que vai automatizar.
-Se um dos tres nao consegue agir a partir do texto, o documento falhou.
+Standard documentation serves three readers: the analyst who implements it, the
+developer who has to populate the dataLayer, and the agent that automates it.
+If any of the three cannot act on the text, the document has failed.
 
-## 1. Escreva em nivel de contrato, nao de tutorial
+## 1. Write a contract, not a tutorial
 
-Errado: "O evento de compra deve ser enviado quando o usuario comprar."
+Wrong: "The purchase event should be sent when the user makes a purchase."
 
-Certo:
+Right:
 
-> `purchase` — dispara na pagina de confirmacao do pedido
-> (`/checkout/sucesso`), pelo evento `purchase` no dataLayer, empurrado pelo
-> back-end apos a confirmacao do pagamento. Nunca deve disparar no retorno do
-> gateway antes da confirmacao.
+> `purchase` — fires on the order confirmation page (`/checkout/success`), from
+> the `purchase` dataLayer event pushed by the back end after payment is
+> confirmed. It must never fire on the gateway return before confirmation.
 
-## 2. Uma tabela de parametros por evento
+## 2. One parameter table per event
 
-| Parametro | Tipo | Obrigatorio | Origem | Exemplo |
+| Parameter | Type | Required | Source | Example |
 | --- | --- | --- | --- | --- |
-| `transaction_id` | string | sim | `dataLayer.ecommerce.transaction_id` | `PED-100294` |
-| `value` | number | sim | `dataLayer.ecommerce.value` | `459.90` |
-| `currency` | string | sim | constante | `BRL` |
+| `transaction_id` | string | yes | `dataLayer.ecommerce.transaction_id` | `ORD-100294` |
+| `value` | number | yes | `dataLayer.ecommerce.value` | `459.90` |
+| `currency` | string | yes | constant | `USD` |
 
-Sem a coluna "Origem" o desenvolvedor nao sabe o que entregar, e o agente nao
-sabe qual variavel criar.
+Without the "Source" column the developer does not know what to deliver, and
+the agent does not know which variable to create.
 
-## 3. Documente o dataLayer junto com o evento
+## 3. Document the dataLayer alongside the event
 
-Inclua o snippet exato esperado:
+Include the exact expected snippet:
 
 ```javascript
 dataLayer.push({ ecommerce: null });
 dataLayer.push({
   event: "purchase",
   ecommerce: {
-    transaction_id: "PED-100294",
+    transaction_id: "ORD-100294",
     value: 459.90,
-    currency: "BRL",
-    items: [{ item_id: "SKU-1", item_name: "Camiseta", price: 89.90, quantity: 1 }]
+    currency: "USD",
+    items: [{ item_id: "SKU-1", item_name: "Basic tee", price: 89.90, quantity: 1 }]
   }
 });
 ```
 
-O `push` de `ecommerce: null` antes de cada evento de ecommerce evita que
-valores do evento anterior vazem para o proximo.
+Pushing `ecommerce: null` before each ecommerce event stops values from the
+previous event leaking into the next one.
 
-## 4. Regras de nomenclatura precisam de contra-exemplos
+## 4. Naming rules need counter-examples
 
-Uma regra sem contra-exemplo e interpretada de tres formas diferentes por tres
-pessoas. Sempre acompanhe a regra de um par:
+A rule without a counter-example gets interpreted three different ways by three
+different people. Always pair the rule with both:
 
-- Certo: `GA4 - Event - purchase`
-- Errado: `ga4 purchase`, `Tag GA4 compra`, `GA4_Event_Purchase`
+- Right: `GA4 - Event - purchase`
+- Wrong: `ga4 purchase`, `Purchase tag GA4`, `GA4_Event_Purchase`
 
-## 5. Respeite os limites da plataforma GA4
+## 5. Record the foundation each product needs
 
-- Nome de evento: ate 40 caracteres, `a-z`, `0-9` e `_`, comecando por letra.
-- Ate 25 parametros por evento.
-- Nome de parametro: ate 40 caracteres. Valor de texto: ate 100 caracteres
-  (500 em propriedades 360).
-- Ate 25 propriedades de usuario por propriedade GA4.
-- Prefixos reservados: `_`, `ga_`, `google_`, `firebase_`, `gtag`.
-- Nomes reservados que voce nao pode reutilizar: `first_open`, `first_visit`,
+State which base tag has to exist before the events you are documenting:
+
+| Event group | Foundation |
+| --- | --- |
+| GA4 events | Google Tag with `G-XXXXXXX` |
+| Google Ads conversions | Conversion Linker + `AW-XXXXXXXXX` |
+| Floodlight | Conversion Linker + advertiser id |
+
+The creator agent reads this and refuses to build event tags on a foundation
+that does not exist.
+
+## 6. Respect the GA4 platform limits
+
+- Event name: up to 40 characters, `a-z`, `0-9` and `_`, starting with a letter.
+- Up to 25 parameters per event.
+- Parameter name: up to 40 characters. Text value: up to 100 characters (500 on
+  360 properties).
+- Up to 25 user properties per GA4 property.
+- Reserved prefixes: `_`, `ga_`, `google_`, `firebase_`, `gtag`.
+- Reserved names you cannot reuse: `first_open`, `first_visit`,
   `session_start`, `user_engagement`, `app_exception`, `in_app_purchase`,
-  `screen_view`, entre outros.
+  `screen_view`, among others.
 
-Registre esses limites no documento do cliente. Eles sao a causa mais comum de
-evento silenciosamente descartado.
+Put these limits in the client's document. They are the most common cause of a
+silently dropped event.
 
-## 6. Prefira o padrao oficial ao evento customizado
+## 7. Prefer the official standard over a custom event
 
-Antes de criar `compra_finalizada`, verifique se `purchase` resolve. Eventos
-recomendados pelo Google alimentam relatorios prontos (Monetizacao, Geracao de
-lead) e integracoes com Google Ads. Um evento customizado equivalente perde
-tudo isso e ainda precisa de dimensao personalizada para ser analisado.
+Before creating `purchase_completed`, check whether `purchase` covers it.
+Google's recommended events feed built-in reports (Monetization, Lead
+generation) and Google Ads integrations. An equivalent custom event loses all
+of that and still needs a custom dimension to be analysed.
 
-Documente a decisao quando fugir do padrao, com a justificativa.
+Document the decision whenever you leave the standard, with the reasoning.
 
-## 7. Versione e date
+## 8. Version and date it
 
-Todo documento comeca com:
+Every document opens with:
 
 ```markdown
-> Versao 1.0 - atualizado em 2026-08-24 - responsavel: <nome>
+> Version 1.0 - updated 2026-08-24 - owner: <name>
 ```
 
-Sem data, ninguem sabe se o documento ou o container esta certo.
+Without a date, nobody can tell whether the document or the container is the
+one that is wrong.
 
-## 8. Termine com "Pendencias"
+## 9. End with "Open questions"
 
-Lista do que ficou indefinido, quem decide e ate quando. Documentacao honesta
-sobre o que nao sabe vale mais que documentacao completa e errada.
+A list of what is still undecided, who decides, and by when. Documentation that
+is honest about what it does not know beats documentation that is complete and
+wrong.

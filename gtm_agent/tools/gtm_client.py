@@ -1,8 +1,8 @@
-"""Cliente autenticado da Google Tag Manager API v2 e utilitarios comuns.
+"""Authenticated Google Tag Manager API v2 client and shared helpers.
 
-Este modulo concentra autenticacao, paginacao e tratamento de erros. As
-ferramentas expostas aos agentes NUNCA devem levantar excecao: elas retornam
-dicionarios com a chave `error` para que o LLM possa reagir.
+This module owns authentication, pagination and error handling. Tools exposed
+to the agents must NEVER raise: they return dictionaries carrying an `error`
+key so the model can react to the failure.
 """
 
 from __future__ import annotations
@@ -11,6 +11,8 @@ import functools
 import json
 import logging
 import pickle
+import random
+import time
 from typing import Any
 from typing import Callable
 from typing import Optional
@@ -24,8 +26,8 @@ from ..config import settings
 
 logger = logging.getLogger(__name__)
 
-#: Escopos necessarios: leitura completa + edicao de containers (rascunho).
-#: `publish` NAO esta incluso de proposito: o agente nunca publica um container.
+#: Full read access plus container editing (draft only).
+#: `publish` is deliberately absent: the agent never publishes a container.
 SCOPES = [
     "https://www.googleapis.com/auth/tagmanager.readonly",
     "https://www.googleapis.com/auth/tagmanager.edit.containers",
@@ -34,7 +36,7 @@ SCOPES = [
 
 @functools.lru_cache(maxsize=1)
 def get_gtm_service():
-    """Retorna (e memoiza) o service autenticado da API do GTM."""
+    """Return (and memoize) the authenticated GTM API service."""
     creds = None
     token_file = settings.token_file
 
@@ -48,9 +50,9 @@ def get_gtm_service():
         else:
             if not settings.client_secret_file.exists():
                 raise FileNotFoundError(
-                    f"client_secret.json nao encontrado em {settings.client_secret_file}. "
-                    "Baixe as credenciais OAuth no Google Cloud Console e ajuste "
-                    "GTM_CLIENT_SECRET_FILE no .env."
+                    f"client_secret.json not found at {settings.client_secret_file}. "
+                    "Download the OAuth credentials from the Google Cloud Console "
+                    "and point GTM_CLIENT_SECRET_FILE at them in .env."
                 )
             flow = InstalledAppFlow.from_client_secrets_file(
                 str(settings.client_secret_file), SCOPES
@@ -64,12 +66,12 @@ def get_gtm_service():
 
 
 def workspaces():
-    """Atalho para o resource `accounts().containers().workspaces()`."""
+    """Shortcut for the `accounts().containers().workspaces()` resource."""
     return get_gtm_service().accounts().containers().workspaces()
 
 
 # ---------------------------------------------------------------------------
-# Tratamento de erros
+# Error handling
 # ---------------------------------------------------------------------------
 
 
@@ -78,40 +80,66 @@ def _describe_http_error(exc: HttpError) -> dict[str, Any]:
     detail: Any = None
     try:
         detail = json.loads(exc.content.decode("utf-8")).get("error", {})
-    except Exception:  # pragma: no cover - corpo nao-JSON
+    except Exception:  # pragma: no cover - non-JSON body
         detail = exc.content.decode("utf-8", errors="replace") if exc.content else None
 
     hints = {
-        401: "Credenciais invalidas ou expiradas. Apague o token.pickle e refaca o consentimento OAuth.",
-        403: "Sem permissao para essa conta/container, ou a API do Tag Manager nao esta habilitada no projeto.",
-        404: "Recurso nao encontrado. Confira account_id, container_id e workspace_id.",
-        409: "Conflito: o workspace pode estar desatualizado. Rode um sync do workspace no GTM.",
-        429: "Quota da API excedida. Aguarde antes de repetir (limite padrao: 0,25 req/s por usuario).",
+        401: "Invalid or expired credentials. Delete token.pickle and redo the OAuth consent.",
+        403: "No permission for this account/container, or the Tag Manager API is not enabled on the project.",
+        404: "Resource not found. Check account_id, container_id and workspace_id.",
+        409: "Conflict: the workspace may be stale. Sync the workspace in the GTM UI.",
+        429: "API quota exceeded. Wait before retrying (default limit: 0.25 requests/second per user).",
     }
     return {
         "error": "gtm_api_error",
         "status": status,
         "message": detail if detail else str(exc),
-        "hint": hints.get(status, "Consulte a mensagem retornada pela API."),
+        "hint": hints.get(status, "Read the message returned by the API."),
     }
 
 
+#: The Tag Manager API allows roughly 0.25 queries/second per user. A tool that
+#: fans out (a snapshot reads five collections) trips that easily, and the
+#: agent has no useful way to recover from a raw 429.
+_MAX_RETRIES = 4
+_BASE_BACKOFF = 2.0
+
+
+def _is_retryable(exc: HttpError) -> bool:
+    status = getattr(exc.resp, "status", None)
+    return status == 429 or (status is not None and status >= 500)
+
+
 def tool_errors(func: Callable) -> Callable:
-    """Converte excecoes em dicionarios de erro legiveis pelo LLM."""
+    """Retry rate limits, then turn exceptions into model-readable dicts."""
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         try:
-            return func(*args, **kwargs)
+            for attempt in range(_MAX_RETRIES):
+                try:
+                    return func(*args, **kwargs)
+                except HttpError as exc:
+                    if not _is_retryable(exc) or attempt == _MAX_RETRIES - 1:
+                        raise
+                    delay = _BASE_BACKOFF * (2**attempt) + random.uniform(0, 1)
+                    logger.info(
+                        "Retryable API error in %s (attempt %d/%d), sleeping %.1fs",
+                        func.__name__,
+                        attempt + 1,
+                        _MAX_RETRIES,
+                        delay,
+                    )
+                    time.sleep(delay)
         except HttpError as exc:
-            logger.warning("Erro HTTP na ferramenta %s: %s", func.__name__, exc)
+            logger.warning("HTTP error in tool %s: %s", func.__name__, exc)
             return _describe_http_error(exc)
         except ValueError as exc:
             return {"error": "invalid_arguments", "message": str(exc)}
         except FileNotFoundError as exc:
             return {"error": "missing_credentials", "message": str(exc)}
-        except Exception as exc:  # pragma: no cover - rede/ambiente
-            logger.exception("Falha inesperada na ferramenta %s", func.__name__)
+        except Exception as exc:  # pragma: no cover - network/environment
+            logger.exception("Unexpected failure in tool %s", func.__name__)
             return {
                 "error": "unexpected_error",
                 "message": f"{type(exc).__name__}: {exc}",
@@ -121,18 +149,18 @@ def tool_errors(func: Callable) -> Callable:
 
 
 # ---------------------------------------------------------------------------
-# Paginacao
+# Pagination
 # ---------------------------------------------------------------------------
 
 
 def paginate(resource, method: str, item_key: str, **kwargs) -> list[dict[str, Any]]:
-    """Percorre todas as paginas de um metodo `list` da API do GTM.
+    """Walk every page of a GTM API `list` method.
 
     Args:
-        resource: resource ja construido (ex.: `workspaces().tags()`).
-        method: nome do metodo de listagem (normalmente "list").
-        item_key: chave da lista na resposta (ex.: "tag", "trigger").
-        **kwargs: argumentos do metodo (ex.: `parent=...`).
+        resource: an already built resource (e.g. `workspaces().tags()`).
+        method: the listing method name (normally "list").
+        item_key: the list key in the response (e.g. "tag", "trigger").
+        **kwargs: method arguments (e.g. `parent=...`).
     """
     items: list[dict[str, Any]] = []
     page_token: Optional[str] = None
@@ -150,12 +178,12 @@ def paginate(resource, method: str, item_key: str, **kwargs) -> list[dict[str, A
 
 
 # ---------------------------------------------------------------------------
-# Normalizacao de entidades (reduz tokens enviados ao modelo)
+# Entity normalization (keeps the token cost of inventories down)
 # ---------------------------------------------------------------------------
 
 
 def parameters_to_dict(parameters: Optional[list[dict[str, Any]]]) -> dict[str, Any]:
-    """Converte a lista `parameter` da API do GTM em um dicionario simples."""
+    """Flatten the GTM API `parameter` list into a plain dictionary."""
     result: dict[str, Any] = {}
     for param in parameters or []:
         key = param.get("key")
@@ -164,7 +192,9 @@ def parameters_to_dict(parameters: Optional[list[dict[str, Any]]]) -> dict[str, 
         param_type = param.get("type")
         if param_type == "list":
             result[key] = [
-                parameters_to_dict(item.get("map", [])) if item.get("type") == "map" else item.get("value")
+                parameters_to_dict(item.get("map", []))
+                if item.get("type") == "map"
+                else item.get("value")
                 for item in param.get("list", [])
             ]
         elif param_type == "map":

@@ -1,4 +1,4 @@
-"""Sub agentes especializados do GTM Auto Tagging."""
+"""Specialized sub agents of GTM Auto Tagging."""
 
 from .auditor import auditor_agent
 from .container_organizer import container_organizer_agent

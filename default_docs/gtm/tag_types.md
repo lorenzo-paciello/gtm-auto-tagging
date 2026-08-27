@@ -1,55 +1,65 @@
-# GTM - tipos de tag na API v2
+# GTM - tag types in the API v2
 
-O campo `type` no corpo de uma tag usa um codigo curto, diferente do nome que
-aparece na interface. Use esta tabela ao chamar `create_tag` e ao traduzir um
-inventario para o usuario.
+The `type` field in a tag body uses a short code that differs from the name
+shown in the UI. Use this table when calling `create_tag` and when translating
+an inventory back for the user.
 
 ## Google
 
-| `type` | Nome na interface | Parametros principais |
+| `type` | UI name | Main parameters |
 | --- | --- | --- |
-| `googtag` | Google Tag | `tagId` (G-XXXX, AW-XXXX ou GT-XXXX), `configSettingsTable`, `eventSettingsTable` |
-| `gaawe` | Evento do Google Analytics (GA4) | `eventName`, `measurementId` ou `measurementIdOverride`, `eventSettingsTable`, `userProperties`, `sendEcommerceData`, `getEcommerceDataFrom` |
-| `gaawc` | Configuracao do GA4 (legado, substituida por `googtag`) | `measurementId`, `fieldsToSet` |
-| `awct` | Acompanhamento de conversoes do Google Ads | `conversionId`, `conversionLabel`, `orderId`, `conversionValue`, `currencyCode`, `enableProductReporting`, `enableEnhancedConversion` |
-| `sp` | Remarketing do Google Ads | `conversionId`, `customParams`, `enableDynamicRemarketing` |
+| `googtag` | Google Tag | `tagId` (G-XXXX, AW-XXXX or GT-XXXX), `configSettingsTable`, `eventSettingsTable` |
+| `gaawe` | Google Analytics: GA4 Event | `eventName`, `measurementId` or `measurementIdOverride`, `eventSettingsTable`, `userProperties`, `sendEcommerceData`, `getEcommerceDataFrom` |
+| `gaawc` | Google Analytics: GA4 Configuration (legacy, replaced by `googtag`) | `measurementId`, `fieldsToSet` |
+| `awct` | Google Ads Conversion Tracking | `conversionId`, `conversionLabel`, `orderId`, `conversionValue`, `currencyCode`, `enableProductReporting`, `enableEnhancedConversion` |
+| `sp` | Google Ads Remarketing | `conversionId`, `customParams`, `enableDynamicRemarketing` |
 | `gclidw` | Conversion Linker | `enableCrossDomain`, `acceptIncoming`, `linkerDomains`, `cookiePrefix` |
 | `flc` | Floodlight Counter | `advertiserId`, `groupTag`, `activityTag`, `countingMethod`, `ordinalValue`, `enableGoogleAttributionOptions` |
 | `fls` | Floodlight Sales | `advertiserId`, `groupTag`, `activityTag`, `orderId`, `revenue`, `quantity` |
-| `gaawllm` | Google Analytics: user-provided data | `userDataSource`, campos de e-mail/telefone/endereco |
-| `ua` | Universal Analytics (descontinuado) | achado critico em auditoria: nao coleta mais dado |
+| `gaawllm` | Google Analytics: user-provided data | `userDataSource`, email/phone/address fields |
+| `ua` | Universal Analytics (sunset) | critical audit finding: it no longer collects data |
 
-## Genericas
+## Generic
 
-| `type` | Nome na interface | Uso |
+| `type` | UI name | Use |
 | --- | --- | --- |
-| `html` | HTML personalizado | `html`, `supportDocumentWrite`. Ultimo recurso |
-| `img` | Pixel de imagem personalizado | `url`, `cacheBusterQueryParam`, `useCacheBuster` |
-| `cvt_<containerId>_<templateId>` | Template da comunidade | parametros definidos pelo template |
-| `zone` | Zona (container 360) | |
+| `html` | Custom HTML | `html`, `supportDocumentWrite`. Last resort |
+| `img` | Custom Image Pixel | `url`, `cacheBusterQueryParam`, `useCacheBuster` |
+| `cvt_<galleryTemplateId>` | Community template from the gallery | parameters defined by the template; get the exact type from `list_templates` |
+| `cvt_<containerId>_<templateId>` | Hand-written custom template | idem |
+| `zone` | Zone (360 containers) | |
 
-## Terceiros comuns
+## Common third parties
 
-Pixels de Meta, LinkedIn, TikTok e similares aparecem quase sempre como
-templates da galeria (`cvt_*`) ou como `html`. Ao inventariar, identifique pelo
-nome da tag e pelo conteudo dos parametros, nao pelo `type`.
+Meta, LinkedIn, TikTok and similar pixels almost always appear as gallery
+templates (`cvt_*`) or as `html`. When inventorying, identify them by tag name
+and parameter contents, not by `type`.
 
-## Como montar `parameters_json`
+## Building `parameters_json`
 
-A ferramenta `create_tag` recebe um JSON plano e converte para o formato
-`parameter` da API. Regras de conversao:
+`create_tag` takes a flat JSON string and converts it to the API's `parameter`
+format. Conversion rules:
 
-| Valor Python/JSON | Tipo na API |
+| Python/JSON value | API type |
 | --- | --- |
-| texto | `template` |
-| numero inteiro | `integer` |
+| text | `template` |
+| integer | `integer` |
 | `true` / `false` | `boolean` |
-| objeto `{}` | `map` |
-| lista `[]` | `list` |
+| object `{}` | `map` |
+| list `[]` | `list` |
 
-Referencias a variaveis do GTM usam `{{Nome da variavel}}` dentro do texto.
+References to GTM variables use `{{Variable name}}` inside the text.
 
-### Exemplo - evento GA4 com parametros
+### Example - base Google Tag
+
+```json
+{"tagId": "{{CONST - GA4 Measurement ID}}"}
+```
+
+Fire it on `2147479573` (Initialization - All Pages) or `2147479553` (All
+Pages). See `gtm/prerequisites.md`.
+
+### Example - GA4 event with parameters
 
 ```json
 {
@@ -58,12 +68,12 @@ Referencias a variaveis do GTM usam `{{Nome da variavel}}` dentro do texto.
   "eventSettingsTable": [
     {"parameter": "form_name", "parameterValue": "{{DLV - form_name}}"},
     {"parameter": "value", "parameterValue": "{{DLV - lead_value}}"},
-    {"parameter": "currency", "parameterValue": "BRL"}
+    {"parameter": "currency", "parameterValue": "USD"}
   ]
 }
 ```
 
-### Exemplo - ecommerce lendo o dataLayer
+### Example - ecommerce reading the dataLayer
 
 ```json
 {
@@ -74,7 +84,7 @@ Referencias a variaveis do GTM usam `{{Nome da variavel}}` dentro do texto.
 }
 ```
 
-### Exemplo - conversao do Google Ads
+### Example - Google Ads conversion
 
 ```json
 {
@@ -82,16 +92,16 @@ Referencias a variaveis do GTM usam `{{Nome da variavel}}` dentro do texto.
   "conversionLabel": "AbC-D_efG-h12_34-567",
   "orderId": "{{DLV - ecommerce.transaction_id}}",
   "conversionValue": "{{DLV - ecommerce.value}}",
-  "currencyCode": "BRL"
+  "currencyCode": "USD"
 }
 ```
 
-### Exemplo - Floodlight Sales
+### Example - Floodlight Sales
 
 ```json
 {
   "advertiserId": "1234567",
-  "groupTag": "compra",
+  "groupTag": "purchase",
   "activityTag": "trans0",
   "orderId": "{{DLV - ecommerce.transaction_id}}",
   "revenue": "{{DLV - ecommerce.value}}",
@@ -99,12 +109,12 @@ Referencias a variaveis do GTM usam `{{Nome da variavel}}` dentro do texto.
 }
 ```
 
-## Regras do projeto
+## Project rules
 
-1. `html` so quando nao existir tag nativa nem template da galeria. Toda tag
-   `html` precisa de justificativa em `notes`.
-2. IDs de medicao e de conversao ficam em variaveis constantes, nunca
-   escritos direto na tag - senao trocar de ambiente vira uma caçada.
-3. Toda tag de midia paga declara `consentSettings`.
-4. Configure `Consent Initialization` e `Conversion Linker` antes de qualquer
-   tag de conversao.
+1. `html` only when no native tag and no gallery template exists. Every `html`
+   tag needs a justification in `notes`.
+2. Measurement and conversion ids live in constant variables, never typed into
+   the tag -- otherwise switching environments becomes a manual hunt.
+3. Every advertising tag declares `consentSettings`.
+4. Configure Consent Initialization and Conversion Linker before any conversion
+   tag. See `gtm/prerequisites.md`.

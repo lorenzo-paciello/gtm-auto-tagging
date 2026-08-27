@@ -1,6 +1,6 @@
-"""Ferramentas de organizacao do container: pastas e movimentacao de entidades.
+"""Container organization tools: folders and entity movement.
 
-Usadas pelo `container_organizer_agent`.
+Used by `container_organizer_agent`.
 """
 
 from __future__ import annotations
@@ -26,21 +26,21 @@ def create_folder(
     container_id: Optional[str] = None,
     workspace_id: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Cria uma pasta no workspace do GTM.
+    """Create a folder in the GTM workspace.
 
-    Rode `list_folders` antes: o GTM aceita pastas com nomes repetidos, o que
-    quebra a organizacao.
+    Run `list_folders` first: GTM happily accepts duplicate folder names, which
+    destroys the organization you are trying to build.
 
     Args:
-        name: nome da pasta, seguindo a convencao do projeto
-            (ex.: "GA4", "Google Ads", "Floodlight", "Consentimento").
-        notes: descricao do que pertence a esta pasta.
-        account_id: id da conta. Se omitido, usa o valor do .env.
-        container_id: id do container. Se omitido, usa o valor do .env.
-        workspace_id: id do workspace. Se omitido, usa o valor do .env.
+        name: folder name, following the project convention
+            (e.g. "GA4", "Google Ads", "Floodlight", "Consent").
+        notes: description of what belongs in this folder.
+        account_id: account id. Falls back to the .env value.
+        container_id: container id. Falls back to the .env value.
+        workspace_id: workspace id. Falls back to the .env value.
 
     Returns:
-        A pasta criada, incluindo `folderId`.
+        The created folder, including `folderId`.
     """
     parent = settings.workspace_path(account_id, container_id, workspace_id)
     body: dict[str, Any] = {"name": name}
@@ -71,16 +71,16 @@ def list_folder_entities(
     container_id: Optional[str] = None,
     workspace_id: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Lista tudo que ja esta dentro de uma pasta.
+    """List everything already inside a folder.
 
     Args:
-        folder_id: id numerico da pasta.
-        account_id: id da conta. Se omitido, usa o valor do .env.
-        container_id: id do container. Se omitido, usa o valor do .env.
-        workspace_id: id do workspace. Se omitido, usa o valor do .env.
+        folder_id: numeric folder id.
+        account_id: account id. Falls back to the .env value.
+        container_id: container id. Falls back to the .env value.
+        workspace_id: workspace id. Falls back to the .env value.
 
     Returns:
-        Dicionario com `tags`, `triggers` e `variables` da pasta.
+        A dict with the folder's `tags`, `triggers` and `variables`.
     """
     parent = settings.workspace_path(account_id, container_id, workspace_id)
     path = f"{parent}/folders/{folder_id}"
@@ -126,20 +126,20 @@ def move_entities_to_folder(
     container_id: Optional[str] = None,
     workspace_id: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Move tags, acionadores e variaveis para uma pasta.
+    """Move tags, triggers and variables into a folder.
 
     Args:
-        folder_id: id da pasta de destino. Use "0" para tirar as entidades de
-            qualquer pasta e devolve-las a raiz do container.
-        tag_ids: ids das tags a mover.
-        trigger_ids: ids dos acionadores a mover.
-        variable_ids: ids das variaveis a mover.
-        account_id: id da conta. Se omitido, usa o valor do .env.
-        container_id: id do container. Se omitido, usa o valor do .env.
-        workspace_id: id do workspace. Se omitido, usa o valor do .env.
+        folder_id: destination folder id. Use "0" to pull entities out of any
+            folder and back to the container root.
+        tag_ids: tag ids to move.
+        trigger_ids: trigger ids to move.
+        variable_ids: variable ids to move.
+        account_id: account id. Falls back to the .env value.
+        container_id: container id. Falls back to the .env value.
+        workspace_id: workspace id. Falls back to the .env value.
 
     Returns:
-        Resumo do que foi movido.
+        A summary of what was moved.
     """
     tag_ids = [str(i) for i in (tag_ids or [])]
     trigger_ids = [str(i) for i in (trigger_ids or [])]
@@ -147,7 +147,7 @@ def move_entities_to_folder(
 
     if not (tag_ids or trigger_ids or variable_ids):
         raise ValueError(
-            "Informe ao menos um id em tag_ids, trigger_ids ou variable_ids."
+            "Provide at least one id in tag_ids, trigger_ids or variable_ids."
         )
 
     parent = settings.workspace_path(account_id, container_id, workspace_id)
@@ -188,19 +188,19 @@ def get_folder_map(
     container_id: Optional[str] = None,
     workspace_id: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Mostra a arvore atual de pastas e o que esta fora de qualquer pasta.
+    """Show the current folder tree and everything sitting outside a folder.
 
-    Ponto de partida do `container_organizer_agent`: em uma chamada devolve as
-    pastas existentes, a contagem de itens em cada uma e a lista completa das
-    entidades sem pasta (as que precisam ser organizadas).
+    The starting point for `container_organizer_agent`: one call returns the
+    existing folders, how many items each holds, and the full list of entities
+    with no folder (the ones that need organizing).
 
     Args:
-        account_id: id da conta. Se omitido, usa o valor do .env.
-        container_id: id do container. Se omitido, usa o valor do .env.
-        workspace_id: id do workspace. Se omitido, usa o valor do .env.
+        account_id: account id. Falls back to the .env value.
+        container_id: container id. Falls back to the .env value.
+        workspace_id: workspace id. Falls back to the .env value.
 
     Returns:
-        Dicionario com `folders` (cada uma com sua contagem) e `unfiled`.
+        A dict with `folders` (each with its counts and contents) and `unfiled`.
     """
     parent = settings.workspace_path(account_id, container_id, workspace_id)
     ws = workspaces()
@@ -229,7 +229,9 @@ def get_folder_map(
             folder_id = str(item.get("parentFolderId") or "")
             entry = summarizer(item)
             minimal = {
-                "id": entry.get("tagId") or entry.get("triggerId") or entry.get("variableId"),
+                "id": entry.get("tagId")
+                or entry.get("triggerId")
+                or entry.get("variableId"),
                 "name": entry.get("name"),
                 "type": entry.get("type"),
             }

@@ -1,23 +1,24 @@
-"""Sub agente de listagem e inventario do container GTM (read-only)."""
+"""Sub agent for listing and inventorying the GTM container (read-only)."""
 
 from __future__ import annotations
 
 from google.adk.agents.llm_agent import Agent
 
-from ...config import settings
+from ...models import resolve_model
 from ...prompts import LISTING_INSTRUCTION
+from ...prompts import static_instruction
 from ...tools import DOC_TOOLS
 from ...tools import READ_TOOLS
 
 tags_listing_agent = Agent(
-    model=settings.model_fast,
+    model=resolve_model("fast"),
     name="tags_listing_agent",
     description=(
-        "Lista e inventaria o que existe no container GTM: tags, acionadores, "
-        "variaveis, variaveis integradas e pastas. Use para perguntas do tipo "
-        "'o que tenho no container', 'quais tags de GA4 existem', 'me mostre a "
-        "configuracao da tag X'. Somente leitura."
+        "Lists and inventories what exists in the GTM container: tags, "
+        "triggers, variables, built-in variables and folders. Use it for "
+        "questions like 'what do I have in the container', 'which GA4 tags "
+        "exist', 'show me the configuration of tag X'. Read-only."
     ),
-    instruction=LISTING_INSTRUCTION,
+    instruction=static_instruction(LISTING_INSTRUCTION),
     tools=[*READ_TOOLS, *DOC_TOOLS],
 )

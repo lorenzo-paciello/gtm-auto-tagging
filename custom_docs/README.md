@@ -1,22 +1,22 @@
-# Documentacao customizada
+# Custom documentation
 
-Coloque aqui a documentacao de tagueamento do seu negocio. Arquivos deste
-diretorio **sobrepoem** os equivalentes de `default_docs/` quando tem o mesmo
-caminho relativo.
+Put your business's tagging documentation here. Files in this directory
+**override** their counterparts in `default_docs/` when they share the same
+relative path.
 
-Exemplos:
+Examples:
 
-| Arquivo | Efeito |
+| File | Effect |
 | --- | --- |
-| `custom_docs/conventions/naming_conventions.md` | substitui o padrao de nomenclatura do projeto |
-| `custom_docs/ga4/events_meu_ecommerce.md` | adiciona um dicionario de eventos proprio |
-| `custom_docs/ga4/events_ecommerce.md` | substitui o funil de ecommerce padrao |
+| `custom_docs/conventions/naming_conventions.md` | replaces the project naming standard |
+| `custom_docs/ga4/events_my_store.md` | adds your own event dictionary |
+| `custom_docs/ga4/events_ecommerce.md` | replaces the default ecommerce funnel |
 
-## Como criar
+## How to create them
 
-Peca ao agente: *"quero criar minha documentacao padrao de tagueamento"*. Ele
-carrega a skill `default-docs-builder`, entrevista voce, redige em Markdown,
-mostra para aprovacao e grava aqui.
+Ask the agent: *"I want to create my standard tagging documentation."* It loads
+the `default-docs-builder` skill, interviews you, drafts the Markdown, shows it
+for approval, and saves it here.
 
-Voce tambem pode escrever os arquivos a mao — sao Markdown comum. Os agentes
-leem tudo que for `.md` neste diretorio, em qualquer profundidade de subpasta.
+You can also write the files by hand -- they are plain Markdown. The agents
+read every `.md` in this directory, at any subfolder depth.

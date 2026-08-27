@@ -1,82 +1,83 @@
-# Google Ads - conversao, remarketing e enhanced conversions
+# Google Ads - conversions, remarketing and enhanced conversions
 
-## Componentes obrigatorios
+## Required components
 
-| Ordem | Tag | `type` | Papel |
+| Order | Tag | `type` | Role |
 | --- | --- | --- | --- |
-| 1 | Consent Initialization (CMP) | `html` ou template | define o estado de consentimento antes de tudo |
-| 2 | Conversion Linker | `gclidw` | grava o `gclid`/`wbraid` em cookie proprio (`_gcl_*`). **Sem ele a conversao nao e atribuida** |
-| 3 | Google Tag (AW-XXXX) ou tag de conversao | `googtag` / `awct` | envia a conversao |
-| 4 | Remarketing | `sp` | audiencias e remarketing dinamico |
+| 1 | Consent Initialization (CMP) | `html` or template | sets the consent state before anything else |
+| 2 | Conversion Linker | `gclidw` | stores `gclid`/`wbraid` in a first-party cookie (`_gcl_*`). **Without it the conversion is not attributed** |
+| 3 | Google Tag (AW-XXXX) or conversion tag | `googtag` / `awct` | sends the conversion |
+| 4 | Remarketing | `sp` | audiences and dynamic remarketing |
 
-O Conversion Linker deve disparar em **todas as paginas**, com o acionador
-`Initialization - All Pages`.
+The Conversion Linker must fire on **all pages**, using the
+`Initialization - All Pages` trigger (`2147479573`).
 
-## Tag de conversao (`awct`)
+## Conversion tag (`awct`)
 
-| Parametro | Obrigatorio | Descricao |
+| Parameter | Required | Description |
 | --- | --- | --- |
-| `conversionId` | sim | somente os digitos do `AW-XXXXXXXXX` |
-| `conversionLabel` | sim | rotulo da acao de conversao |
-| `conversionValue` | recomendado | valor monetario. Use variavel do dataLayer |
-| `currencyCode` | se houver valor | ISO 4217 (`BRL`) |
-| `orderId` | recomendado | id do pedido; e o que **deduplica** conversoes |
-| `enableProductReporting` | ecommerce | ativa `merchantId`, `itemsByDataLayer` |
-| `enableEnhancedConversion` | recomendado | ativa enhanced conversions |
-| `userDataVariable` | com EC | variavel do tipo user-provided data |
+| `conversionId` | yes | the digits only from `AW-XXXXXXXXX` |
+| `conversionLabel` | yes | the conversion action label |
+| `conversionValue` | recommended | monetary value. Use a dataLayer variable |
+| `currencyCode` | if a value is sent | ISO 4217 (`USD`) |
+| `orderId` | recommended | the order id; this is what **deduplicates** conversions |
+| `enableProductReporting` | ecommerce | enables `merchantId`, `itemsByDataLayer` |
+| `enableEnhancedConversion` | recommended | turns on enhanced conversions |
+| `userDataVariable` | with EC | a user-provided data variable |
 
-`conversionId` e `conversionLabel` sempre em variaveis constantes, nunca
-digitados na tag.
+`conversionId` and `conversionLabel` always come from constant variables, never
+typed into the tag.
 
-## Deduplicacao
+## Deduplication
 
-Sem `orderId`, um refresh na pagina de obrigado conta a conversao de novo. Em
-auditoria, toda tag `awct` de compra sem `orderId` e achado **critico**.
+Without `orderId`, a refresh on the thank-you page counts the conversion again.
+In an audit, any `awct` purchase tag without `orderId` is a **critical**
+finding.
 
 ## Enhanced conversions
 
-Enviam dados do usuario com hash para melhorar a atribuicao.
+Send hashed user data to improve attribution.
 
-- **Nunca** monte o hash manualmente em Custom JavaScript sem necessidade: a
-  tag do Google faz o SHA-256 e a normalizacao.
-- Campos aceitos: `email`, `phone_number`, `address` (`first_name`,
+- **Never** build the hash by hand in Custom JavaScript unless you have to: the
+  Google tag performs the SHA-256 and the normalization for you.
+- Accepted fields: `email`, `phone_number`, `address` (`first_name`,
   `last_name`, `street`, `city`, `region`, `postal_code`, `country`).
-- Telefone em formato E.164 (`+5511999999999`).
-- E-mail em minusculas e sem espacos.
-- Requer aceite dos termos de dados do cliente no Google Ads.
-- Requer base legal para o tratamento. Registre isso na documentacao do
-  cliente.
+- Phone numbers in E.164 format (`+15551234567`).
+- Email lowercased and trimmed.
+- Requires accepting the customer data terms in Google Ads.
+- Requires a legal basis for the processing. Record that in the client's
+  documentation.
 
-Implementacao recomendada: tag "Google Analytics: user-provided data"
-(`gaawllm`) ou o campo `userDataVariable` dentro da propria `awct`.
+Recommended implementation: the "Google Analytics: user-provided data" tag
+(`gaawllm`) or the `userDataVariable` field inside `awct` itself.
 
 ## Remarketing (`sp`)
 
-Para remarketing dinamico, os parametros customizados precisam bater com o tipo
-de negocio configurado no Google Ads:
+For dynamic remarketing, the custom parameters must match the business type
+configured in Google Ads:
 
-| Vertical | Parametros |
+| Vertical | Parameters |
 | --- | --- |
-| Varejo | `ecomm_prodid`, `ecomm_pagetype`, `ecomm_totalvalue` |
-| Educacao | `dynx_itemid`, `dynx_pagetype`, `dynx_totalvalue` |
-| Viagem | `dynx_itemid`, `dynx_itemid2`, `dynx_pagetype`, `dynx_totalvalue` |
+| Retail | `ecomm_prodid`, `ecomm_pagetype`, `ecomm_totalvalue` |
+| Education | `dynx_itemid`, `dynx_pagetype`, `dynx_totalvalue` |
+| Travel | `dynx_itemid`, `dynx_itemid2`, `dynx_pagetype`, `dynx_totalvalue` |
 
-Valores de `ecomm_pagetype`: `home`, `searchresults`, `category`, `product`,
+`ecomm_pagetype` values: `home`, `searchresults`, `category`, `product`,
 `cart`, `purchase`, `other`.
 
-## Importar conversao do GA4 em vez de usar `awct`
+## Importing GA4 conversions instead of using `awct`
 
-Alternativa valida: marcar o evento como key event no GA4 e importar no Google
-Ads. Vantagens: uma unica implementacao, modelo de atribuicao do GA4.
-Desvantagens: latencia maior e dependencia do vinculo entre as contas.
+A valid alternative: mark the event as a key event in GA4 and import it into
+Google Ads. Upsides: a single implementation, GA4's attribution model.
+Downsides: more latency and a dependency on the account link.
 
-**Nunca use as duas ao mesmo tempo para a mesma conversao** - o Google Ads
-contabiliza em dobro. Em auditoria, verifique se ha tag `awct` de compra
-convivendo com conversao importada do GA4.
+**Never run both for the same conversion** -- Google Ads counts it twice. In an
+audit, check whether an `awct` purchase tag coexists with a GA4-imported
+conversion.
 
 ## Consent Mode
 
-Tags de Google Ads devem declarar `consentSettings`:
+Google Ads tags should declare `consentSettings`:
 
 ```json
 {
@@ -85,17 +86,17 @@ Tags de Google Ads devem declarar `consentSettings`:
 }
 ```
 
-Com Consent Mode avancado, as tags disparam mesmo sem consentimento, enviando
-pings sem cookies (conversion modeling). Com o basico, elas nao disparam. A
-escolha e do juridico do cliente - documente qual esta em uso.
+With advanced Consent Mode, tags fire even without consent, sending cookieless
+pings (conversion modeling). With basic mode, they do not fire at all. That
+choice belongs to the client's legal team -- document which one is in use.
 
-## Checklist de auditoria
+## Audit checklist
 
-- [ ] Conversion Linker presente e disparando em todas as paginas
-- [ ] Conversion Linker dispara ANTES das tags de conversao
-- [ ] `conversionId` e `conversionLabel` vindos de variaveis
-- [ ] `orderId` preenchido nas conversoes de compra
-- [ ] `currencyCode` presente sempre que ha `conversionValue`
-- [ ] Sem dupla contagem (`awct` + conversao importada do GA4)
-- [ ] `consentSettings` declarado
-- [ ] Nenhum dado pessoal em claro sendo enviado
+- [ ] Conversion Linker present and firing on all pages
+- [ ] Conversion Linker fires BEFORE the conversion tags
+- [ ] `conversionId` and `conversionLabel` come from variables
+- [ ] `orderId` filled on purchase conversions
+- [ ] `currencyCode` present whenever `conversionValue` is set
+- [ ] No double counting (`awct` plus a GA4-imported conversion)
+- [ ] `consentSettings` declared
+- [ ] No plain personal data being sent

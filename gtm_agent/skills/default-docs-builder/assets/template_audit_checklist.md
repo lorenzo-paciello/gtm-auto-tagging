@@ -1,55 +1,61 @@
-# Checklist de auditoria - <NOME DO NEGOCIO>
+# Audit checklist - <BUSINESS NAME>
 
-> Versao 1.0 - atualizado em <AAAA-MM-DD> - responsavel: <NOME>
+> Version 1.0 - updated <YYYY-MM-DD> - owner: <NAME>
 
-Cada item recebe: OK / Ajustar / Nao se aplica, com evidencia (id da entidade).
+Each item gets OK / Fix / N/A, with evidence (entity id).
 
-## 1. Cobertura
+## 1. Foundation
 
-- [ ] Todos os eventos criticos do dicionario estao implementados
-- [ ] Cada evento implementado tem os parametros obrigatorios documentados
-- [ ] Conversoes de midia paga cobrem os mesmos eventos de negocio do GA4
-- [ ] Nenhum evento importante depende exclusivamente de Custom HTML
+- [ ] Exactly one Google base tag per destination, with a firing trigger
+- [ ] No duplicate base tags pointing at the same measurement id
+- [ ] Conversion Linker present when Google Ads or Floodlight exist
+- [ ] Consent Initialization fires before everything else
+- [ ] No event tag whose product foundation is missing
 
-## 2. Configuracao
+## 2. Coverage
 
-- [ ] Existe uma Google Tag / configuracao GA4 unica, sem duplicidade
-- [ ] Measurement ID e IDs de conversao vem de variaveis, nao hardcoded
-- [ ] Tags de ecommerce leem o objeto `ecommerce` do dataLayer
-- [ ] Nenhuma tag com `firingTriggerId` vazio
-- [ ] Nenhuma tag pausada sem justificativa em `notes`
+- [ ] Every critical event in the dictionary is implemented
+- [ ] Each implemented event carries its required parameters
+- [ ] Paid media conversions cover the same business events as GA4
+- [ ] No important event depends solely on Custom HTML
 
-## 3. Consentimento e privacidade
+## 3. Configuration
 
-- [ ] Consent Mode configurado, com Consent Initialization antes de tudo
-- [ ] Tags de midia com `consentSettings` declarado
-- [ ] Conversion Linker presente quando ha Google Ads ou Floodlight
-- [ ] Nenhum dado pessoal em claro (e-mail, telefone, CPF) sendo enviado
-- [ ] Enhanced Conversions usa dado com hash ou o campo `user_data` nativo
+- [ ] Measurement IDs and conversion IDs come from variables, not hardcoded
+- [ ] Ecommerce tags read the `ecommerce` object from the dataLayer
+- [ ] No tag with an empty `firingTriggerId`
+- [ ] No paused tag without a justification in `notes`
 
-## 4. Organizacao
+## 4. Consent and privacy
 
-- [ ] Toda entidade esta em uma pasta
-- [ ] Nomes seguem `naming_conventions.md`
-- [ ] Sem nomes duplicados entre tags, acionadores ou variaveis
-- [ ] `notes` preenchido nas entidades criticas
+- [ ] Consent Mode configured, with Consent Initialization first
+- [ ] Media tags declare `consentSettings`
+- [ ] No plain personal data (email, phone, national id) being sent
+- [ ] Enhanced Conversions use hashed data or the native `user_data` field
 
-## 5. Higiene
+## 5. Organization
 
-- [ ] Sem acionadores orfaos
-- [ ] Sem variaveis sem uso
-- [ ] Sem tags de Universal Analytics ativas
-- [ ] Sem Custom HTML fazendo o que uma tag nativa ja faz
-- [ ] Workspace sem conflitos de merge pendentes
+- [ ] Every entity is in a folder
+- [ ] Names follow `naming_conventions.md`
+- [ ] No duplicate names among tags, triggers or variables
+- [ ] `notes` filled on the critical entities
 
-## 6. Publicacao
+## 6. Hygiene
 
-- [ ] Versoes recentes tem nome e descricao
-- [ ] Ha ambiente de homologacao ou processo de Preview antes de publicar
-- [ ] Alteracoes pendentes no workspace estao revisadas
+- [ ] No orphan triggers
+- [ ] No unused variables
+- [ ] No active Universal Analytics tags
+- [ ] No Custom HTML doing what a native tag already does
+- [ ] No pending merge conflicts in the workspace
 
-## Achados
+## 7. Publishing
 
-| Severidade | Entidade (id) | Problema | Recomendacao | Responsavel |
+- [ ] Recent versions have a name and description
+- [ ] There is a staging environment or a Preview process before publishing
+- [ ] Pending workspace changes have been reviewed
+
+## Findings
+
+| Severity | Entity (id) | Problem | Recommendation | Owner |
 | --- | --- | --- | --- | --- |
 | | | | | |

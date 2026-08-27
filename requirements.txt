@@ -1,5 +1,13 @@
+# Core
 google-adk>=2.7.1
 google-api-python-client>=2.199.0
 google-auth-oauthlib>=1.4.0
 google-auth>=2.56.0
 python-dotenv>=1.0.0
+
+# Optional model providers - install only the one you use.
+# See docs/model_providers.md
+#
+#   GTM_MODEL_PROVIDER=anthropic         -> anthropic>=0.40.0
+#   GTM_MODEL_PROVIDER=vertex_anthropic  -> anthropic[vertex]>=0.40.0
+#   GTM_MODEL_PROVIDER=litellm           -> litellm>=1.60.0

@@ -1,27 +1,26 @@
-# GTM - tipos de variavel na API v2
+# GTM - variable types in the API v2
 
-| `type` | Nome na interface | Parametros |
+| `type` | UI name | Parameters |
 | --- | --- | --- |
-| `v` | Variavel da camada de dados | `name` (caminho, ex.: `ecommerce.value`), `dataLayerVersion` (use `2`), `setDefaultValue`, `defaultValue` |
-| `c` | Constante | `value` |
-| `jsm` | JavaScript personalizado | `javascript` (funcao anonima que retorna um valor) |
-| `j` | Variavel JavaScript | `name` (variavel global, ex.: `document.title`) |
+| `v` | Data Layer Variable | `name` (path, e.g. `ecommerce.value`), `dataLayerVersion` (use `2`), `setDefaultValue`, `defaultValue` |
+| `c` | Constant | `value` |
+| `jsm` | Custom JavaScript | `javascript` (an anonymous function returning a value) |
+| `j` | JavaScript Variable | `name` (a global, e.g. `document.title`) |
 | `u` | URL | `component` (`URL`, `HOST`, `PATH`, `QUERY`, `FRAGMENT`, `PROTOCOL`), `queryKey` |
-| `f` | Referenciador HTTP | `component` |
-| `k` | Cookie proprio | `name`, `decodeCookie` |
-| `d` | Elemento DOM | `elementId` ou `elementSelector`, `attributeName` |
-| `e` | Evento personalizado | sem parametros; devolve o nome do evento |
-| `smm` | Tabela de pesquisa | `input`, `map` (lista de pares), `defaultValue` |
-| `remm` | Tabela de expressoes regulares | `input`, `map`, `fullMatch`, `ignoreCase` |
-| `aev` | Variavel de evento automatico | `varType` (`ELEMENT`, `CLASSES`, `ID`, `TARGET`, `TEXT`, `URL`, `ATTRIBUTE`) |
-| `r` | Numero aleatorio | |
-| `ctv` | Numero da versao do container | |
-| `dbg` | Modo de depuracao | |
-| `gtes` | Configuracoes de evento do Google Tag | `eventSettingsTable` |
-| `gtcs` | Configuracoes do Google Tag | `configSettingsTable` |
-| `vis` | Percentual visivel / built-in de visibilidade | |
+| `f` | HTTP Referrer | `component` |
+| `k` | 1st Party Cookie | `name`, `decodeCookie` |
+| `d` | DOM Element | `elementId` or `elementSelector`, `attributeName` |
+| `e` | Custom Event | no parameters; returns the event name |
+| `smm` | Lookup Table | `input`, `map` (list of pairs), `defaultValue` |
+| `remm` | RegEx Table | `input`, `map`, `fullMatch`, `ignoreCase` |
+| `aev` | Auto-Event Variable | `varType` (`ELEMENT`, `CLASSES`, `ID`, `TARGET`, `TEXT`, `URL`, `ATTRIBUTE`) |
+| `r` | Random Number | |
+| `ctv` | Container Version Number | |
+| `dbg` | Debug Mode | |
+| `gtes` | Google Tag: Event Settings | `eventSettingsTable` |
+| `gtcs` | Google Tag: Configuration Settings | `configSettingsTable` |
 
-## Exemplos de `parameters_json`
+## `parameters_json` examples
 
 ### Data Layer Variable
 
@@ -29,63 +28,64 @@
 {"name": "ecommerce.transaction_id", "dataLayerVersion": 2}
 ```
 
-Com valor padrao:
+With a default value:
 
 ```json
-{"name": "user_id", "dataLayerVersion": 2, "setDefaultValue": true, "defaultValue": "(nao logado)"}
+{"name": "user_id", "dataLayerVersion": 2, "setDefaultValue": true, "defaultValue": "(not logged in)"}
 ```
 
-### Constante
+### Constant
 
 ```json
 {"value": "G-XXXXXXXXXX"}
 ```
 
-### URL - parametro de query
+### URL - query parameter
 
 ```json
 {"component": "QUERY", "queryKey": "utm_source"}
 ```
 
-### Tabela de pesquisa (ambiente por hostname)
+### Lookup table (environment by hostname)
 
 ```json
 {
   "input": "{{Page Hostname}}",
-  "defaultValue": "producao",
+  "defaultValue": "production",
   "map": [
-    {"key": "staging.exemplo.com.br", "value": "homologacao"},
-    {"key": "localhost", "value": "desenvolvimento"}
+    {"key": "staging.example.com", "value": "staging"},
+    {"key": "localhost", "value": "development"}
   ]
 }
 ```
 
-> A tabela de pesquisa na API usa uma lista de mapas com as chaves `key` e
-> `value`. A ferramenta converte o JSON plano automaticamente.
+> On the API, a lookup table is a list of maps with `key` and `value` keys. The
+> tool converts the flat JSON automatically.
 
-### JavaScript personalizado
+### Custom JavaScript
 
 ```json
 {"javascript": "function() {\n  return document.title.trim().toLowerCase();\n}"}
 ```
 
-## Regras do projeto
+## Project rules
 
-1. **Todo ID de medicao, conversao ou advertiser vira uma constante.** Trocar
-   de propriedade nao pode exigir editar dez tags.
-2. **Data Layer Variable sempre com `dataLayerVersion: 2`.** A versao 1 nao
-   entende caminhos com ponto (`ecommerce.value`).
-3. **`jsm` e o ultimo recurso.** Custom JavaScript nao e auditavel por quem nao
-   le codigo e e a origem mais comum de variavel "fantasma" em auditoria.
-   Toda variavel `jsm` precisa de `notes` explicando o que faz.
-4. **Nunca coloque dado pessoal em claro em uma variavel** que va para midia.
-   Para Enhanced Conversions, use o campo `user_data` nativo ou hash SHA-256.
-5. **Renomear variavel nao atualiza as referencias.** `{{Nome antigo}}` dentro
-   das tags continua apontando para um nome que nao existe mais, e a tag passa
-   a enviar string vazia. Antes de renomear, liste todos os usos.
+1. **Every measurement, conversion or advertiser id becomes a constant.**
+   Switching properties must not mean editing ten tags.
+2. **Data Layer Variables always with `dataLayerVersion: 2`.** Version 1 does
+   not understand dotted paths (`ecommerce.value`).
+3. **`jsm` is the last resort.** Custom JavaScript is unauditable for anyone
+   who does not read code, and it is the most common source of "ghost"
+   variables in an audit. Every `jsm` variable needs `notes` explaining what it
+   does.
+4. **Never put plain personal data in a variable** that feeds advertising. For
+   Enhanced Conversions, use the native `user_data` field or SHA-256 hashing.
+5. **Renaming a variable does not update its references.** `{{Old name}}`
+   inside tags keeps pointing at a name that no longer exists, and the tag
+   starts sending an empty string. List every usage before renaming.
 
-## Variaveis integradas recomendadas
+## Recommended built-in variables
 
-Habilite pelo menos: Page URL, Page Hostname, Page Path, Referrer, Event,
-Click Element, Click Classes, Click ID, Click Text, Click URL, Form Element,
-Form ID, Form Classes, Scroll Depth Threshold, Container ID, Debug Mode.
+Enable at least: Page URL, Page Hostname, Page Path, Referrer, Event, Click
+Element, Click Classes, Click ID, Click Text, Click URL, Form Element, Form ID,
+Form Classes, Scroll Depth Threshold, Container ID, Debug Mode.

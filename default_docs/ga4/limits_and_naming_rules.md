@@ -1,45 +1,45 @@
-# GA4 - limites, nomes reservados e regras de nomenclatura
+# GA4 - limits, reserved names and naming rules
 
-Regras da plataforma. Violar qualquer uma delas faz o GA4 descartar o evento ou
-o parametro **silenciosamente** - sem erro no Preview, sem alerta na interface.
+Platform rules. Breaking any of them makes GA4 drop the event or the parameter
+**silently** - no error in Preview, no warning in the UI.
 
-## Nomes de evento
+## Event names
 
-| Regra | Valor |
+| Rule | Value |
 | --- | --- |
-| Caracteres permitidos | letras, numeros e `_` |
-| Primeiro caractere | precisa ser uma letra |
-| Tamanho maximo | 40 caracteres |
-| Case | diferencia maiusculas de minusculas - `Purchase` != `purchase`. Use sempre minusculas |
-| Espacos | nao permitidos |
-| Eventos distintos por propriedade | 500 |
+| Allowed characters | letters, numbers and `_` |
+| First character | must be a letter |
+| Maximum length | 40 characters |
+| Case | case-sensitive - `Purchase` != `purchase`. Always use lowercase |
+| Spaces | not allowed |
+| Distinct events per property | 500 |
 
-## Parametros
+## Parameters
 
-| Regra | Valor |
+| Rule | Value |
 | --- | --- |
-| Parametros por evento | ate 25 (alem dos automaticos) |
-| Tamanho do nome | 40 caracteres |
-| Tamanho do valor (texto) | 100 caracteres (500 em propriedades 360) |
-| Dimensoes personalizadas de escopo evento | 50 (125 em 360) |
-| Metricas personalizadas | 50 (125 em 360) |
-| Dimensoes de escopo item | 10 (25 em 360) |
+| Parameters per event | up to 25 (beyond the automatic ones) |
+| Name length | 40 characters |
+| Text value length | 100 characters (500 on 360 properties) |
+| Event-scoped custom dimensions | 50 (125 on 360) |
+| Custom metrics | 50 (125 on 360) |
+| Item-scoped dimensions | 10 (25 on 360) |
 
-Todo parametro customizado precisa ser registrado como **dimensao ou metrica
-personalizada** no GA4 para aparecer em relatorio. Parametro enviado e nao
-registrado fica acessivel apenas em BigQuery e no relatorio em tempo real.
+Every custom parameter must be registered as a **custom dimension or metric**
+in GA4 to appear in a report. A parameter that is sent but not registered is
+only reachable in BigQuery and the realtime report.
 
-## Propriedades de usuario
+## User properties
 
-| Regra | Valor |
+| Rule | Value |
 | --- | --- |
-| Propriedades por propriedade GA4 | 25 |
-| Tamanho do nome | 24 caracteres |
-| Tamanho do valor | 36 caracteres |
+| Properties per GA4 property | 25 |
+| Name length | 24 characters |
+| Value length | 36 characters |
 
-## Prefixos reservados
+## Reserved prefixes
 
-Nunca use como prefixo de evento, parametro ou propriedade de usuario:
+Never use as a prefix for an event, parameter or user property:
 
 - `_` (underscore)
 - `ga_`
@@ -47,9 +47,9 @@ Nunca use como prefixo de evento, parametro ou propriedade de usuario:
 - `firebase_`
 - `gtag`
 
-## Nomes de evento reservados
+## Reserved event names
 
-Nao podem ser reutilizados para eventos customizados:
+These cannot be reused for custom events:
 
 `ad_activeview`, `ad_click`, `ad_exposure`, `ad_impression`, `ad_query`,
 `ad_reward`, `adunit_exposure`, `app_background`, `app_clear_data`,
@@ -64,30 +64,30 @@ Nao podem ser reutilizados para eventos customizados:
 `notification_open`, `notification_receive`, `os_update`, `screen_view`,
 `session_start`, `user_engagement`.
 
-## Nomes de parametro reservados
+## Reserved parameter names
 
-`firebase_conversion`, `engagement_time_msec`, `session_id`,
-`ga_session_id`, `ga_session_number`, `page_title`, `page_location`,
-`page_referrer` (estes tres ultimos podem ser sobrescritos deliberadamente na
-tag, mas nunca usados para outro significado).
+`firebase_conversion`, `engagement_time_msec`, `session_id`, `ga_session_id`,
+`ga_session_number`, `page_title`, `page_location`, `page_referrer` (the last
+three can be deliberately overridden on the tag, but never repurposed to mean
+something else).
 
-## Boas praticas de nomenclatura de evento
+## Event naming best practices
 
-1. **Verbo no infinitivo/passado + objeto**, em ingles e `snake_case`:
-   `add_to_cart`, `generate_lead`, `view_item`.
-2. **Nunca coloque a dimensao no nome do evento.** Errado:
-   `purchase_mobile`, `purchase_desktop`. Certo: `purchase` com parametro
-   `device_category`. Cada variante no nome consome uma das 500 vagas de evento
-   e impede somar o total.
-3. **Nao traduza.** `compra` quebra os relatorios prontos de Monetizacao e a
-   importacao de conversao no Google Ads.
-4. **Reuse o evento recomendado** antes de criar um customizado. Ver
+1. **Verb + object**, in English and `snake_case`: `add_to_cart`,
+   `generate_lead`, `view_item`.
+2. **Never put a dimension in the event name.** Wrong: `purchase_mobile`,
+   `purchase_desktop`. Right: `purchase` with a `device_category` parameter.
+   Each variant in the name burns one of the 500 event slots and makes the
+   total impossible to sum.
+3. **Do not translate.** A localized event name breaks the built-in
+   Monetization reports and conversion import into Google Ads.
+4. **Reuse the recommended event** before creating a custom one. See
    `ga4/events_recommended.md`.
 
-## Checagem rapida antes de criar um evento
+## Quick check before creating an event
 
-- [ ] Existe evento automatico ou recomendado equivalente?
-- [ ] O nome respeita 40 caracteres, `snake_case`, sem prefixo reservado?
-- [ ] Os parametros customizados serao registrados como dimensao/metrica?
-- [ ] O valor de texto cabe em 100 caracteres?
-- [ ] O evento representa uma acao, nao uma segmentacao?
+- [ ] Is there an equivalent automatic or recommended event?
+- [ ] Does the name fit 40 characters, `snake_case`, no reserved prefix?
+- [ ] Will the custom parameters be registered as dimensions/metrics?
+- [ ] Does every text value fit in 100 characters?
+- [ ] Does the event represent an action, not a segmentation?

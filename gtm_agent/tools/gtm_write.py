@@ -1,24 +1,36 @@
-"""Ferramentas de ESCRITA no workspace do GTM (tags, triggers e variaveis).
+"""WRITE tools for the GTM workspace (tags, triggers and variables).
 
-Regras de seguranca aplicadas aqui:
+Safety rules enforced here:
 
-* Nada e publicado. As alteracoes ficam no workspace (rascunho) e o usuario
-  publica manualmente pela interface do GTM.
-* Nenhuma ferramenta apaga entidades.
-* Com `GTM_DRY_RUN=true` no .env, as funcoes devolvem o payload que seria
-  enviado a API sem executar a chamada.
+* Nothing is ever published. Changes land in the workspace (draft) and the user
+  publishes manually from the GTM UI.
+* No tool deletes an entity.
+* With `GTM_DRY_RUN=true` in `.env`, these functions return the payload that
+  would have been sent without calling the API.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 from typing import Optional
 
 from ..config import settings
+from .gtm_client import paginate
 from .gtm_client import parameters_to_dict
 from .gtm_client import tool_errors
 from .gtm_client import workspaces
+from .gtm_templates import installed_template_types
+from .gtm_templates import resolve_installed_template
+from .gtm_templates import template_role_hints
+from .references import check_references
+from .references import extract_references
+from .tag_specs import PARAMETER_TYPE_OVERRIDES
+from .tag_specs import TAG_SPECS
+from .tag_specs import TRIGGER_TYPES
+from .tag_specs import format_problems
+from .tag_specs import validate_entity
 
 _ENTITY_RESOURCES = {
     "tag": ("tags", "tagId"),
@@ -29,15 +41,28 @@ _ENTITY_RESOURCES = {
 
 
 # ---------------------------------------------------------------------------
-# Conversao de configuracao "achatada" -> formato `parameter` da API do GTM
+# Flat configuration -> GTM API `parameter` format
 # ---------------------------------------------------------------------------
 
 
-def _to_parameter(value: Any, key: Optional[str] = None) -> dict[str, Any]:
-    """Converte um valor Python no objeto `Parameter` esperado pela API."""
+def _to_parameter(
+    value: Any, key: Optional[str] = None, forced_type: Optional[str] = None
+) -> dict[str, Any]:
+    """Convert a Python value into the `Parameter` object the API expects."""
     param: dict[str, Any] = {}
     if key is not None:
         param["key"] = key
+
+    # Explicit escape hatch: {"__type__": "tagReference", "value": "Tag name"}
+    if isinstance(value, dict) and "__type__" in value:
+        param["type"] = value["__type__"]
+        param["value"] = str(value.get("value", ""))
+        return param
+
+    if forced_type:
+        param["type"] = forced_type
+        param["value"] = "" if value is None else str(value)
+        return param
 
     if isinstance(value, bool):
         param["type"] = "boolean"
@@ -57,9 +82,20 @@ def _to_parameter(value: Any, key: Optional[str] = None) -> dict[str, Any]:
     return param
 
 
-def to_gtm_parameters(flat_config: dict[str, Any]) -> list[dict[str, Any]]:
-    """Converte `{"chave": valor}` na lista `parameter` da API do GTM."""
-    return [_to_parameter(value, key) for key, value in flat_config.items()]
+def to_gtm_parameters(
+    flat_config: dict[str, Any], entity_type: str = ""
+) -> list[dict[str, Any]]:
+    """Convert `{"key": value}` into the GTM API `parameter` list.
+
+    Some parameters must carry a non-`template` type that a flat JSON string
+    cannot express -- `gaawe.measurementId` has to be a `tagReference` naming
+    another tag. Those are applied automatically from the spec registry.
+    """
+    overrides = PARAMETER_TYPE_OVERRIDES.get(entity_type, {})
+    return [
+        _to_parameter(value, key, overrides.get(key))
+        for key, value in flat_config.items()
+    ]
 
 
 def _load_json_arg(raw: str, arg_name: str) -> dict[str, Any]:
@@ -69,21 +105,296 @@ def _load_json_arg(raw: str, arg_name: str) -> dict[str, Any]:
         parsed = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise ValueError(
-            f"`{arg_name}` nao e um JSON valido: {exc}. "
-            'Exemplo esperado: {"measurementIdOverride": "G-XXXX", "eventName": "purchase"}'
+            f"`{arg_name}` is not valid JSON: {exc}. "
+            'Expected something like: {"tagId": "G-XXXX", "eventName": "purchase"}'
         ) from exc
     if not isinstance(parsed, dict):
-        raise ValueError(f"`{arg_name}` deve ser um objeto JSON, nao {type(parsed).__name__}.")
+        raise ValueError(
+            f"`{arg_name}` must be a JSON object, not {type(parsed).__name__}."
+        )
     return parsed
 
 
-def _dry_run_response(operation: str, parent: str, body: dict[str, Any]) -> dict[str, Any]:
+#: Tag types that exist solely to run. One created without a firing trigger is
+#: inert: it shows in the container, appears in the version diff, and never
+#: executes. The API accepts it without comment.
+_TAGS_THAT_MUST_FIRE = frozenset(TAG_SPECS) - {"html", "img"}
+
+
+def _workspace_reference_context(
+    account_id: Optional[str],
+    container_id: Optional[str],
+    workspace_id: Optional[str],
+) -> tuple[list[str], list[str]]:
+    """Names the workspace can resolve: user variables and enabled built-ins."""
+    parent = settings.workspace_path(account_id, container_id, workspace_id)
+    ws = workspaces()
+    variables = paginate(ws.variables(), "list", "variable", parent=parent)
+    built_ins = paginate(
+        ws.built_in_variables(), "list", "builtInVariable", parent=parent
+    )
+    return (
+        [v.get("name") for v in variables if v.get("name")],
+        [b.get("name") for b in built_ins if b.get("name")],
+    )
+
+
+def _reference_problems(
+    config: dict[str, Any],
+    account_id: Optional[str],
+    container_id: Optional[str],
+    workspace_id: Optional[str],
+) -> list[dict[str, str]]:
+    """Check every `{{Name}}` in a payload against what the workspace can resolve."""
+    if not extract_references(config):
+        return []
+    variables, built_ins = _workspace_reference_context(
+        account_id, container_id, workspace_id
+    )
+    return check_references(config, variables, built_ins)
+
+
+def _trigger_problems(
+    tag_type: str, firing_trigger_ids: Optional[list[str]], allow_no_trigger: bool
+) -> list[dict[str, str]]:
+    if firing_trigger_ids or allow_no_trigger or tag_type not in _TAGS_THAT_MUST_FIRE:
+        return []
+    return [
+        {
+            "severity": "error",
+            "message": (
+                f"`{tag_type}` tag created with no firing trigger. It would "
+                "never execute."
+            ),
+            "fix": (
+                "Pass `firing_trigger_ids`. Built-in ids: 2147479553 (All "
+                "Pages), 2147479573 (Initialization), 2147479572 (Consent "
+                "Initialization); `list_triggers` has the workspace ones. If "
+                "this tag is deliberately fired only by tag sequencing from "
+                "another tag, pass allow_no_trigger=True."
+            ),
+        }
+    ]
+
+
+def _validate_template_tag(
+    tag_type: str,
+    config: dict[str, Any],
+    account_id: Optional[str],
+    container_id: Optional[str],
+    workspace_id: Optional[str],
+) -> list[dict[str, str]]:
+    """Validate a community/custom template tag against the template's contract.
+
+    The generic spec registry cannot cover these -- each template declares its
+    own parameters. Reading them from `templateData` is what turns "guess the
+    parameter name and get a 400" into a checkable contract.
+    """
+    spec = resolve_installed_template(
+        tag_type, account_id, container_id, workspace_id
+    )
+    if spec is None:
+        available = installed_template_types(account_id, container_id, workspace_id)
+        listing = (
+            "\n".join(f"  {t['name']}: {t['tag_type']}" for t in available)
+            or "  (no templates installed in this workspace)"
+        )
+        return [
+            {
+                "severity": "error",
+                "message": (
+                    f"No installed template has the tag type `{tag_type}`."
+                ),
+                "fix": (
+                    "Do not build this string yourself. A gallery template uses "
+                    "`cvt_<galleryTemplateId>` (e.g. cvt_MRQN8); only a "
+                    "hand-written custom template uses "
+                    "`cvt_<containerId>_<templateId>`. Copy the `tag_type` "
+                    "field from `list_templates` verbatim.\n"
+                    f"Installed templates:\n{listing}\n"
+                    "If the one you need is absent, ask the user to install it "
+                    "from the Community Template Gallery."
+                ),
+            }
+        ]
+
+    problems: list[dict[str, str]] = []
+    known = {p["name"] for p in spec.get("parameters", [])}
+
+    # A template that declares an event and is given none is not a "base tag";
+    # it is a broken event tag. Templates like Meta's and Pinterest's bootstrap
+    # the pixel from ANY of their tags, so a dedicated base tag is optional --
+    # and blanking the event to manufacture one produces a tag that initializes
+    # the pixel and then reports nothing.
+    hints = template_role_hints(spec.get("parameters", []))
+    event_parameters = hints["event_parameters"]
+    if event_parameters and not any(
+        str(config.get(p, "")).strip() for p in event_parameters
+    ):
+        problems.append(
+            {
+                "severity": "error",
+                "message": (
+                    f"The {spec.get('name')} template declares an event "
+                    f"parameter ({', '.join(event_parameters)}) and this tag "
+                    "leaves it empty."
+                ),
+                "fix": (
+                    "Set the event. If you wanted a base / page-view tag, this "
+                    "template most likely initializes the pixel from any of its "
+                    "tags already -- check `template_self_bootstraps` in "
+                    "check_tagging_prerequisites. When a dedicated page-view "
+                    "tag is genuinely wanted, give it the template's page-view "
+                    f"event value rather than a blank one. Allowed values for "
+                    f"`{event_parameters[0]}` come from get_template_spec."
+                ),
+            }
+        )
+
+    if not spec.get("required_parameters"):
+        problems.append(
+            {
+                "severity": "warning",
+                "message": (
+                    f"The {spec.get('name')} template marks no parameter as "
+                    "required, so the API will accept this tag whatever you send."
+                ),
+                "fix": (
+                    "Confirm the account id parameter is set. A pixel tag with "
+                    "no account id is created successfully and sends nothing. "
+                    "Declared parameters: " + ", ".join(sorted(known))
+                ),
+            }
+        )
+
+    for name in spec.get("required_parameters", []):
+        value = config.get(name)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            details = next(
+                (p for p in spec["parameters"] if p["name"] == name), {}
+            )
+            problems.append(
+                {
+                    "severity": "error",
+                    "message": (
+                        f"`{name}` ({details.get('display_name') or name}) is "
+                        f"required by the {spec.get('name')} template."
+                    ),
+                    "fix": f'Add "{name}" to parameters_json.',
+                }
+            )
+
+    for param in spec.get("parameters", []):
+        value = config.get(param["name"])
+        if value is None:
+            continue
+        name = param["name"]
+
+        allowed = param.get("allowed_values")
+        if allowed:
+            valid = [a["value"] for a in allowed]
+            if str(value) not in valid:
+                problems.append(
+                    {
+                        "severity": "error",
+                        "message": f"`{name}` = {value!r} is not an allowed value.",
+                        "fix": "Use one of: " + ", ".join(str(v) for v in valid),
+                    }
+                )
+            continue
+
+        # A {{Variable}} reference resolves at runtime, so no format check
+        # applies -- only literals can be validated here.
+        text = str(value)
+        if "{{" in text:
+            continue
+
+        pattern = param.get("pattern")
+        if pattern:
+            try:
+                matches = re.fullmatch(pattern, text) or re.match(pattern, text)
+            except re.error:
+                matches = True  # unparseable pattern: let the API decide
+            if not matches:
+                problems.append(
+                    {
+                        "severity": "error",
+                        "message": (
+                            param.get("pattern_error")
+                            or f"`{name}` = {text!r} does not match the required format."
+                        ),
+                        "fix": (
+                            f"The {spec.get('name')} template requires `{name}` to "
+                            f"match the regular expression `{pattern}`. Ask the "
+                            "user for the real value rather than a placeholder."
+                        ),
+                    }
+                )
+
+        min_len, max_len = param.get("min_length"), param.get("max_length")
+        if min_len is not None and not (min_len <= len(text) <= max_len):
+            problems.append(
+                {
+                    "severity": "error",
+                    "message": (
+                        param.get("length_error")
+                        or f"`{name}` must be between {min_len} and {max_len} characters."
+                    ),
+                    "fix": f"`{name}` = {text!r} is {len(text)} characters.",
+                }
+            )
+
+        if param.get("must_be_number"):
+            try:
+                number = float(text)
+            except ValueError:
+                problems.append(
+                    {
+                        "severity": "error",
+                        "message": f"`{name}` must be a number, got {text!r}.",
+                        "fix": f"Pass a numeric value or a {{{{variable}}}} for `{name}`.",
+                    }
+                )
+            else:
+                constraint = param.get("number_constraint")
+                if constraint == "POSITIVE_NUMBER" and number <= 0:
+                    problems.append(
+                        {
+                            "severity": "error",
+                            "message": f"`{name}` must be positive, got {text!r}.",
+                            "fix": f"Pass a value greater than zero for `{name}`.",
+                        }
+                    )
+
+    unknown = [k for k in config if k not in known]
+    if unknown and known:
+        problems.append(
+            {
+                "severity": "warning",
+                "message": (
+                    f"The {spec.get('name')} template does not declare: "
+                    + ", ".join(f"`{k}`" for k in unknown)
+                    + "."
+                ),
+                "fix": (
+                    "The API accepts unknown keys silently and they do nothing. "
+                    "Declared parameters: " + ", ".join(sorted(known))
+                ),
+            }
+        )
+
+    return problems
+
+
+def _dry_run_response(
+    operation: str, parent: str, body: dict[str, Any]
+) -> dict[str, Any]:
     return {
         "dry_run": True,
         "operation": operation,
         "parent": parent,
         "body_that_would_be_sent": body,
-        "note": "GTM_DRY_RUN=true no .env. Nada foi gravado no container.",
+        "note": "GTM_DRY_RUN=true in .env. Nothing was written to the container.",
     }
 
 
@@ -102,44 +413,76 @@ def create_tag(
     notes: str = "",
     folder_id: str = "",
     paused: bool = False,
+    allow_no_trigger: bool = False,
     account_id: Optional[str] = None,
     container_id: Optional[str] = None,
     workspace_id: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Cria uma tag no workspace do GTM.
+    """Create a tag in the GTM workspace.
 
-    Antes de chamar, confirme com `list_tags` que nao existe tag equivalente e
-    com `list_triggers` os ids dos acionadores. Consulte a documentacao padrao
-    (`read_doc`) para o `tag_type` correto e os parametros de cada produto.
+    The payload is validated against the type's specification BEFORE it is
+    sent. When it would be rejected, this returns `invalid_parameters` with the
+    exact missing keys and a working example, and nothing is written. It also
+    warns about unrecognised parameter keys: the GTM API accepts those silently
+    and they do nothing at runtime, so a typo produces a tag that looks correct
+    and never fires properly.
+
+    Before calling: run `check_tagging_prerequisites` to confirm the container
+    has the foundation tag this product depends on, `list_tags` to confirm no
+    equivalent tag exists, and `list_triggers` / `list_built_in_triggers` for
+    the trigger ids. Use `get_entity_spec` when unsure which parameters a type
+    needs.
 
     Args:
-        name: nome da tag ja no padrao de nomenclatura do projeto
-            (ex.: "GA4 - Event - purchase").
-        tag_type: tipo da tag na API. Ex.: "gaawe" (GA4 Event), "googtag"
+        name: tag name, already following the project naming convention
+            (e.g. "GA4 - Event - purchase").
+        tag_type: the API tag type. Examples: "gaawe" (GA4 Event), "googtag"
             (Google Tag), "awct" (Google Ads Conversion), "flc" (Floodlight
             Counter), "fls" (Floodlight Sales), "html" (Custom HTML).
-        parameters_json: string JSON com os parametros da tag em formato plano.
-            Ex.: '{"eventName": "purchase", "measurementId": "{{GA4 - ID}}"}'.
-            Listas e objetos aninhados sao convertidos automaticamente para o
-            formato `list`/`map` da API.
-        firing_trigger_ids: lista de ids de acionadores de disparo.
-        blocking_trigger_ids: lista de ids de acionadores de bloqueio.
-        notes: anotacoes da tag. Documente aqui a origem do requisito.
-        folder_id: id da pasta de destino. Vazio deixa a tag na raiz.
-        paused: cria a tag pausada. Util para revisao antes da publicacao.
-        account_id: id da conta. Se omitido, usa o valor do .env.
-        container_id: id do container. Se omitido, usa o valor do .env.
-        workspace_id: id do workspace. Se omitido, usa o valor do .env.
+        parameters_json: JSON string with the tag parameters, flat.
+            e.g. '{"eventName": "purchase", "measurementIdOverride": "{{CONST - GA4 ID}}"}'.
+            Nested objects and lists are converted to the API's `map`/`list`
+            format automatically. To reference another tag by name, pass
+            `{"__type__": "tagReference", "value": "Google Tag - GA4"}`; for
+            `gaawe.measurementId` that conversion is applied for you.
+        firing_trigger_ids: firing trigger ids. Built-in ids: "2147479553"
+            (All Pages), "2147479573" (Initialization), "2147479572" (Consent
+            Initialization).
+        blocking_trigger_ids: blocking trigger ids.
+        notes: tag notes. Record the originating requirement here.
+        folder_id: destination folder id. Empty leaves the tag at the root.
+        paused: create the tag paused. Useful for review before publishing.
+        allow_no_trigger: permit a tag with no firing trigger. Only for a tag
+            fired exclusively by another tag's sequencing. Otherwise the tag
+            would never execute, and the API accepts it without complaint.
+        account_id: account id. Falls back to the .env value.
+        container_id: container id. Falls back to the .env value.
+        workspace_id: workspace id. Falls back to the .env value.
 
     Returns:
-        A tag criada (inclui `tagId`), ou o payload em modo dry run.
+        The created tag (including `tagId`), or the payload in dry-run mode.
     """
     parent = settings.workspace_path(account_id, container_id, workspace_id)
     config = _load_json_arg(parameters_json, "parameters_json")
 
+    if tag_type.startswith("cvt_"):
+        problems = _validate_template_tag(
+            tag_type, config, account_id, container_id, workspace_id
+        )
+    else:
+        problems = validate_entity("tag", tag_type, config)
+
+    # A `{{Name}}` pointing at nothing resolves to an empty string at runtime,
+    # silently; a tag with no trigger never runs. Both are accepted by the API.
+    problems += _reference_problems(config, account_id, container_id, workspace_id)
+    problems += _trigger_problems(tag_type, firing_trigger_ids, allow_no_trigger)
+
+    if any(p["severity"] == "error" for p in problems):
+        return format_problems("tag", tag_type, problems)
+
     body: dict[str, Any] = {"name": name, "type": tag_type}
     if config:
-        body["parameter"] = to_gtm_parameters(config)
+        body["parameter"] = to_gtm_parameters(config, tag_type)
     if firing_trigger_ids:
         body["firingTriggerId"] = [str(t) for t in firing_trigger_ids]
     if blocking_trigger_ids:
@@ -152,10 +495,12 @@ def create_tag(
         body["paused"] = True
 
     if settings.dry_run:
-        return _dry_run_response("create_tag", parent, body)
+        response = _dry_run_response("create_tag", parent, body)
+        response["warnings"] = problems
+        return response
 
     created = workspaces().tags().create(parent=parent, body=body).execute()
-    return {
+    result = {
         "created": True,
         "tagId": created.get("tagId"),
         "name": created.get("name"),
@@ -163,6 +508,9 @@ def create_tag(
         "path": created.get("path"),
         "tagManagerUrl": created.get("tagManagerUrl"),
     }
+    if problems:
+        result["warnings"] = problems
+    return result
 
 
 @tool_errors
@@ -176,27 +524,27 @@ def update_tag(
     container_id: Optional[str] = None,
     workspace_id: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Atualiza uma tag existente preservando os campos nao informados.
+    """Update an existing tag, preserving the fields you do not pass.
 
-    A API do GTM substitui a entidade inteira em um update; esta ferramenta le
-    a tag atual, aplica somente as alteracoes pedidas e reenvia o corpo
-    completo, usando o `fingerprint` para evitar sobrescrever mudancas feitas
-    por outra pessoa no mesmo workspace.
+    A GTM update replaces the whole entity, so this tool reads the current tag,
+    applies only the requested changes and sends the full body back, using the
+    `fingerprint` so it never silently overwrites someone else's edit in the
+    same workspace.
 
     Args:
-        tag_id: id numerico da tag.
-        name: novo nome. Vazio mantem o atual.
-        parameters_json: string JSON com os parametros a sobrescrever/adicionar.
-            Vazio mantem os parametros atuais. Os parametros informados sao
-            mesclados sobre os existentes.
-        firing_trigger_ids: nova lista de acionadores de disparo. None mantem.
-        notes: novas anotacoes. Vazio mantem as atuais.
-        account_id: id da conta. Se omitido, usa o valor do .env.
-        container_id: id do container. Se omitido, usa o valor do .env.
-        workspace_id: id do workspace. Se omitido, usa o valor do .env.
+        tag_id: numeric tag id.
+        name: new name. Empty keeps the current one.
+        parameters_json: JSON string with parameters to overwrite or add. Empty
+            keeps the current parameters. The values you pass are merged on top
+            of what already exists.
+        firing_trigger_ids: new firing trigger list. None keeps the current one.
+        notes: new notes. Empty keeps the current ones.
+        account_id: account id. Falls back to the .env value.
+        container_id: container id. Falls back to the .env value.
+        workspace_id: workspace id. Falls back to the .env value.
 
     Returns:
-        A tag atualizada, ou o payload em modo dry run.
+        The updated tag, or the payload in dry-run mode.
     """
     parent = settings.workspace_path(account_id, container_id, workspace_id)
     path = f"{parent}/tags/{tag_id}"
@@ -212,7 +560,14 @@ def update_tag(
     if parameters_json.strip():
         merged = parameters_to_dict(current.get("parameter"))
         merged.update(_load_json_arg(parameters_json, "parameters_json"))
-        body["parameter"] = to_gtm_parameters(merged)
+        tag_type = current.get("type", "")
+        problems = validate_entity("tag", tag_type, merged)
+        problems += _reference_problems(
+            merged, account_id, container_id, workspace_id
+        )
+        if any(p["severity"] == "error" for p in problems):
+            return format_problems("tag", tag_type, problems)
+        body["parameter"] = to_gtm_parameters(merged, tag_type)
 
     if settings.dry_run:
         return _dry_run_response("update_tag", path, body)
@@ -249,44 +604,55 @@ def create_trigger(
     container_id: Optional[str] = None,
     workspace_id: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Cria um acionador (trigger) no workspace do GTM.
+    """Create a trigger in the GTM workspace.
 
-    Sempre rode `list_triggers` antes: reaproveitar um acionador existente e
-    preferivel a criar um duplicado.
+    Always run `list_triggers` first: reusing an existing trigger beats
+    creating a duplicate. For All Pages / Initialization, do not create
+    anything -- use the reserved ids from `list_built_in_triggers`.
 
     Args:
-        name: nome do acionador (ex.: "CE - purchase").
-        trigger_type: tipo na API. Ex.: "customEvent", "pageview", "domReady",
-            "windowLoaded", "click", "linkClick", "formSubmission",
+        name: trigger name (e.g. "CE - purchase").
+        trigger_type: the API type. Examples: "customEvent", "pageview",
+            "domReady", "windowLoaded", "click", "linkClick", "formSubmission",
             "elementVisibility", "scrollDepth", "timer", "historyChange",
             "youTubeVideo", "init", "consentInit".
-        custom_event_name: obrigatorio quando trigger_type = "customEvent".
-            E o nome do evento no dataLayer (ex.: "purchase"). Aceita regex se
-            voce marcar `useRegex` em parameters_json.
-        filters_json: string JSON com a lista de condicoes adicionais, no
-            formato [{"variable": "Page Path", "operator": "contains",
-            "value": "/checkout"}]. Operadores validos: equals, contains,
-            startsWith, endsWith, matchRegex, cssSelector, urlMatches, greater,
-            greaterOrEquals, less, lessOrEquals.
-        parameters_json: string JSON com parametros extras do acionador
-            (ex.: '{"verticalScrollPercentageList": "25,50,75,100"}').
-        notes: anotacoes do acionador.
-        folder_id: id da pasta de destino. Vazio deixa na raiz.
-        account_id: id da conta. Se omitido, usa o valor do .env.
-        container_id: id do container. Se omitido, usa o valor do .env.
-        workspace_id: id do workspace. Se omitido, usa o valor do .env.
+        custom_event_name: required when trigger_type is "customEvent". The
+            dataLayer event name (e.g. "purchase").
+        filters_json: JSON string with extra conditions, shaped as
+            [{"variable": "Page Path", "operator": "contains",
+            "value": "/checkout"}]. Valid operators: equals, contains,
+            startsWith, endsWith, matchRegex, matchCssSelector, urlMatches,
+            greater, greaterOrEquals, less, lessOrEquals.
+        parameters_json: JSON string with extra trigger parameters
+            (e.g. '{"verticalThresholdsPercent": "25,50,75,100"}').
+        notes: trigger notes.
+        folder_id: destination folder id. Empty leaves it at the root.
+        account_id: account id. Falls back to the .env value.
+        container_id: container id. Falls back to the .env value.
+        workspace_id: workspace id. Falls back to the .env value.
 
     Returns:
-        O acionador criado (inclui `triggerId`), ou o payload em modo dry run.
+        The created trigger (including `triggerId`), or the dry-run payload.
     """
     parent = settings.workspace_path(account_id, container_id, workspace_id)
+
+    if trigger_type not in TRIGGER_TYPES:
+        raise ValueError(
+            f"Unknown trigger_type '{trigger_type}'. Valid types: "
+            + ", ".join(sorted(TRIGGER_TYPES))
+            + ". Note that All Pages, Initialization and Consent "
+            "Initialization are reserved built-in triggers -- do not recreate "
+            "them, use the ids from `list_built_in_triggers`."
+        )
 
     body: dict[str, Any] = {"name": name, "type": trigger_type}
 
     if trigger_type == "customEvent":
         if not custom_event_name:
             raise ValueError(
-                "custom_event_name e obrigatorio quando trigger_type = 'customEvent'."
+                "custom_event_name is required when trigger_type is "
+                "'customEvent'. The API rejects a custom-event trigger without "
+                "exactly one custom-event filter."
             )
         body["customEventFilter"] = [
             {
@@ -302,9 +668,9 @@ def create_trigger(
     try:
         filters = json.loads(raw_filters)
     except json.JSONDecodeError as exc:
-        raise ValueError(f"`filters_json` nao e um JSON valido: {exc}") from exc
+        raise ValueError(f"`filters_json` is not valid JSON: {exc}") from exc
     if not isinstance(filters, list):
-        raise ValueError("`filters_json` deve ser uma lista de condicoes.")
+        raise ValueError("`filters_json` must be a list of conditions.")
 
     if filters:
         body["filter"] = [
@@ -329,6 +695,16 @@ def create_trigger(
         ]
 
     config = _load_json_arg(parameters_json, "parameters_json")
+
+    reference_problems = _reference_problems(
+        {"filters": filters, "parameters": config},
+        account_id,
+        container_id,
+        workspace_id,
+    )
+    if any(p["severity"] == "error" for p in reference_problems):
+        return format_problems("trigger", trigger_type, reference_problems)
+
     if config:
         body["parameter"] = to_gtm_parameters(config)
     if notes:
@@ -350,7 +726,7 @@ def create_trigger(
 
 
 # ---------------------------------------------------------------------------
-# Variaveis
+# Variables
 # ---------------------------------------------------------------------------
 
 
@@ -365,52 +741,62 @@ def create_variable(
     container_id: Optional[str] = None,
     workspace_id: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Cria uma variavel definida pelo usuario no workspace do GTM.
+    """Create a user-defined variable in the GTM workspace.
 
     Args:
-        name: nome da variavel (ex.: "DLV - ecommerce.transaction_id").
-        variable_type: tipo na API. Ex.: "v" (Data Layer Variable), "c"
-            (Constante), "jsm" (Custom JavaScript), "j" (JavaScript Variable),
+        name: variable name (e.g. "DLV - ecommerce.transaction_id").
+        variable_type: the API type. Examples: "v" (Data Layer Variable), "c"
+            (Constant), "jsm" (Custom JavaScript), "j" (JavaScript Variable),
             "u" (URL), "k" (1st Party Cookie), "d" (DOM Element), "smm"
             (Lookup Table), "remm" (RegEx Table), "aev" (Auto-Event Variable).
-        parameters_json: string JSON com os parametros. Exemplos:
+        parameters_json: JSON string with the parameters. Examples:
             Data Layer Variable -> '{"name": "ecommerce.transaction_id",
-            "dataLayerVersion": 2}'; Constante -> '{"value": "G-XXXXXXX"}'.
-        notes: anotacoes da variavel.
-        folder_id: id da pasta de destino. Vazio deixa na raiz.
-        account_id: id da conta. Se omitido, usa o valor do .env.
-        container_id: id do container. Se omitido, usa o valor do .env.
-        workspace_id: id do workspace. Se omitido, usa o valor do .env.
+            "dataLayerVersion": 2}'; Constant -> '{"value": "G-XXXXXXX"}'.
+        notes: variable notes.
+        folder_id: destination folder id. Empty leaves it at the root.
+        account_id: account id. Falls back to the .env value.
+        container_id: container id. Falls back to the .env value.
+        workspace_id: workspace id. Falls back to the .env value.
 
     Returns:
-        A variavel criada (inclui `variableId`), ou o payload em modo dry run.
+        The created variable (including `variableId`), or the dry-run payload.
     """
     parent = settings.workspace_path(account_id, container_id, workspace_id)
     config = _load_json_arg(parameters_json, "parameters_json")
 
+    problems = validate_entity("variable", variable_type, config)
+    problems += _reference_problems(config, account_id, container_id, workspace_id)
+    if any(p["severity"] == "error" for p in problems):
+        return format_problems("variable", variable_type, problems)
+
     body: dict[str, Any] = {"name": name, "type": variable_type}
     if config:
-        body["parameter"] = to_gtm_parameters(config)
+        body["parameter"] = to_gtm_parameters(config, variable_type)
     if notes:
         body["notes"] = notes
     if folder_id:
         body["parentFolderId"] = str(folder_id)
 
     if settings.dry_run:
-        return _dry_run_response("create_variable", parent, body)
+        response = _dry_run_response("create_variable", parent, body)
+        response["warnings"] = problems
+        return response
 
     created = workspaces().variables().create(parent=parent, body=body).execute()
-    return {
+    result = {
         "created": True,
         "variableId": created.get("variableId"),
         "name": created.get("name"),
         "type": created.get("type"),
         "path": created.get("path"),
     }
+    if problems:
+        result["warnings"] = problems
+    return result
 
 
 # ---------------------------------------------------------------------------
-# Renomeacao (padronizacao de nomenclatura)
+# Renaming (naming-convention cleanup)
 # ---------------------------------------------------------------------------
 
 
@@ -423,26 +809,26 @@ def rename_entity(
     container_id: Optional[str] = None,
     workspace_id: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Renomeia uma tag, acionador, variavel ou pasta preservando a configuracao.
+    """Rename a tag, trigger, variable or folder, preserving its configuration.
 
-    Use para aplicar a convencao de nomenclatura do projeto sem recriar
-    entidades. ATENCAO: renomear uma variavel NAO atualiza as referencias
-    `{{Nome antigo}}` espalhadas pelo container - verifique os usos antes.
+    Use it to apply the project naming convention without recreating entities.
+    WARNING: renaming a variable does NOT update the `{{Old name}}` references
+    scattered across the container -- check the usages first.
 
     Args:
-        entity_type: "tag", "trigger", "variable" ou "folder".
-        entity_id: id numerico da entidade.
-        new_name: novo nome, ja no padrao de nomenclatura.
-        account_id: id da conta. Se omitido, usa o valor do .env.
-        container_id: id do container. Se omitido, usa o valor do .env.
-        workspace_id: id do workspace. Se omitido, usa o valor do .env.
+        entity_type: "tag", "trigger", "variable" or "folder".
+        entity_id: numeric entity id.
+        new_name: the new name, already following the convention.
+        account_id: account id. Falls back to the .env value.
+        container_id: container id. Falls back to the .env value.
+        workspace_id: workspace id. Falls back to the .env value.
 
     Returns:
-        Confirmacao com nome antigo e novo, ou o payload em modo dry run.
+        Confirmation with the old and new name, or the dry-run payload.
     """
     if entity_type not in _ENTITY_RESOURCES:
         raise ValueError(
-            f"entity_type invalido: '{entity_type}'. Use um de: "
+            f"Invalid entity_type: '{entity_type}'. Use one of: "
             + ", ".join(_ENTITY_RESOURCES)
         )
 

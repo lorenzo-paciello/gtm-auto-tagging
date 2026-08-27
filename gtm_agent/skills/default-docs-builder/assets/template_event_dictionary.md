@@ -1,65 +1,73 @@
-# Dicionario de eventos - <NOME DO NEGOCIO>
+# Event dictionary - <BUSINESS NAME>
 
-> Versao 1.0 - atualizado em <AAAA-MM-DD> - responsavel: <NOME>
-> Plataforma: GA4 (property <G-XXXXXXX>) | Container GTM: <GTM-XXXXXXX>
+> Version 1.0 - updated <YYYY-MM-DD> - owner: <NAME>
+> Platform: GA4 (property <G-XXXXXXX>) | GTM container: <GTM-XXXXXXX>
 
-## Convencao
+## Convention
 
-- Nomes de evento em `snake_case`, ate 40 caracteres.
-- Eventos recomendados pelo Google tem prioridade sobre eventos customizados.
-- Todo evento customizado precisa de justificativa nesta pagina.
+- Event names in `snake_case`, up to 40 characters.
+- Google's recommended events take priority over custom ones.
+- Every custom event needs a justification on this page.
 
-## Indice de eventos
+## Foundation
 
-| Evento | Categoria | Origem | Prioridade |
+| Event group | Base tag it requires |
+| --- | --- |
+| GA4 events | Google Tag `<G-XXXXXXX>` |
+| Google Ads conversions | Conversion Linker + `<AW-XXXXXXXXX>` |
+| Floodlight | Conversion Linker + advertiser `<id>` |
+
+## Event index
+
+| Event | Category | Source | Priority |
 | --- | --- | --- | --- |
-| `<evento>` | ecommerce / lead / engajamento | dataLayer / GTM auto-event | critico / alto / medio |
+| `<event>` | ecommerce / lead / engagement | dataLayer / GTM auto-event | critical / high / medium |
 
 ---
 
-## `<nome_do_evento>`
+## `<event_name>`
 
-**O que mede (negocio).** <uma frase>
+**What it measures (business).** <one sentence>
 
-**Quando dispara (tecnico).** <evento do dataLayer, URL, seletor CSS, condicao>
+**When it fires (technical).** <dataLayer event, URL, CSS selector, condition>
 
-**Quando NAO dispara.** <casos de borda que ja causaram dado duplicado>
+**When it does NOT fire.** <edge cases that have caused duplicate data before>
 
-**Parametros**
+**Parameters**
 
-| Parametro | Tipo | Obrigatorio | Origem | Exemplo |
+| Parameter | Type | Required | Source | Example |
 | --- | --- | --- | --- | --- |
-| `<param>` | string / number / boolean | sim / nao | `dataLayer.<caminho>` | `<exemplo>` |
+| `<param>` | string / number / boolean | yes / no | `dataLayer.<path>` | `<example>` |
 
-**Dimensoes e metricas personalizadas necessarias no GA4**
+**Custom dimensions and metrics needed in GA4**
 
-| Parametro | Escopo | Nome do relatorio |
+| Parameter | Scope | Report name |
 | --- | --- | --- |
-| `<param>` | evento / usuario | `<nome>` |
+| `<param>` | event / user | `<name>` |
 
-**Snippet do dataLayer**
+**dataLayer snippet**
 
 ```javascript
 dataLayer.push({
-  event: "<nome_do_evento>",
+  event: "<event_name>",
   // ...
 });
 ```
 
-**Destinos**
+**Destinations**
 
-| Ferramenta | Acao |
+| Tool | Action |
 | --- | --- |
-| GA4 | evento `<nome>` |
-| Google Ads | conversao `<nome>` (`AW-XXXX/<label>`) |
+| GA4 | event `<name>` |
+| Google Ads | conversion `<name>` (`AW-XXXX/<label>`) |
 | Floodlight | activity `<tag string>` |
 
-**Notas de implementacao.** <particularidades, riscos, dependencias>
+**Implementation notes.** <specifics, risks, dependencies>
 
 ---
 
-## Pendencias
+## Open questions
 
-| Item | Quem decide | Prazo |
+| Item | Who decides | By when |
 | --- | --- | --- |
 | | | |
