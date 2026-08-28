@@ -16,7 +16,8 @@ venv/
 *.egg-info/
 
 # Documentacao gerada pelo usuario (descomente se nao quiser versionar)
-# custom_docs/
+custom_docs/conventions
+custom_docs/ga4
 
 # Editores
 .vscode/

@@ -320,7 +320,8 @@ gtm-auto-tagging/
 │   ├── test_media_detection.py    # third-party pixel detection, false positives
 │   ├── test_google_destinations.py # G-/AW-/DC-/GT- destination matching
 │   ├── test_references.py         # {{Variable}} integrity, firing triggers
-│   └── test_identifiers.py        # destination ids, near-miss references
+│   ├── test_identifiers.py        # destination ids, near-miss references
+│   └── test_tool_registry.py      # no tool registered twice per agent
 └── gtm_agent/
     ├── agent.py             # root agent
     ├── config.py            # settings from .env

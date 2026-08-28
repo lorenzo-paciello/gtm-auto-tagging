@@ -4,9 +4,6 @@ description: Guides the user through writing their own standard tagging document
 metadata:
   adk_additional_tools:
     - save_custom_doc
-    - list_docs
-    - read_doc
-    - search_docs
 ---
 
 # Standard documentation builder
@@ -25,6 +22,10 @@ Run `list_docs()` and show the user what already exists. New documentation
 should complement, not repeat. If the user wants to override a default
 document, explain that they only need a file with the **same relative path**
 inside `custom_docs/`.
+
+`list_docs`, `read_doc` and `search_docs` are available to the agent at all
+times. Activating this skill grants only `save_custom_doc` -- the one tool that
+writes.
 
 ## Step 1 - Establish the scope
 
@@ -108,9 +109,9 @@ save_custom_doc(doc_path="ga4/events_ecommerce.md", content="<full markdown>")
 - After saving each file, confirm with `list_docs()` and show the user the
   final path.
 
-## Step 6 - Close
+## Step 6 - Write the closing summary
 
-Finish with:
+There is no "finish" tool. Writing this summary is how the skill ends:
 
 1. The list of files created and what each one governs.
 2. Which default documents were overridden, if any.

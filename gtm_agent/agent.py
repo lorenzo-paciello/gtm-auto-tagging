@@ -47,8 +47,16 @@ def _build_skill_toolset() -> SkillToolset | None:
     if not skills:
         return None
     # `additional_tools` are only released to the model once the skill that
-    # declares them in `adk_additional_tools` is loaded via `load_skill`.
-    return SkillToolset(skills=skills, additional_tools=[save_custom_doc, *DOC_TOOLS])
+    # declares them in `adk_additional_tools` is loaded via `load_skill`. It
+    # must therefore list ONLY tools the agent does not already carry:
+    # SkillToolset checks for collisions against its own four skill tools, not
+    # against the agent's, so re-supplying a permanent tool registers it twice
+    # and the LLM request shadows the first copy.
+    #
+    # `save_custom_doc` qualifies -- write access to custom_docs/ should exist
+    # only while the documentation skill is active. The doc *read* tools are
+    # permanent on the root agent, so the skill can already call them.
+    return SkillToolset(skills=skills, additional_tools=[save_custom_doc])
 
 
 _skill_toolset = _build_skill_toolset()
