@@ -44,6 +44,7 @@ from ..config import settings
 from .gtm_client import paginate
 from .gtm_client import tool_errors
 from .gtm_client import workspaces
+from .media_platforms import MEDIA_PLATFORMS
 
 #: `templateData` is the .tpl file format: named sections separated by
 #: ___SECTION_NAME___ markers.
@@ -247,7 +248,16 @@ def _looks_like_id_parameter(name: str) -> bool:
         return True
     if lowered.startswith("visitor") or lowered.startswith("user"):
         return False  # a visitor id identifies the person, not the account
-    return lowered.endswith(_ID_PARAM_SUFFIXES)
+    if "event" in lowered:
+        # `eventId` deduplicates a single hit against the server-side API. It is
+        # unique per fire, so treating it as the account id groups unrelated
+        # tags together and hides the pixel they actually use.
+        return False
+    # Some templates accept several accounts at once and name the parameter in
+    # the plural -- `pixelIds`. Without stripping it, those tags end up with no
+    # identifiable account at all.
+    singular = lowered[:-1] if lowered.endswith("s") else lowered
+    return singular.endswith(_ID_PARAM_SUFFIXES)
 
 
 def template_role_hints(parameters: list[dict[str, Any]]) -> dict[str, Any]:
@@ -522,3 +532,44 @@ def installed_template_types(
     parent = f"accounts/{acc}/containers/{cont}/workspaces/{ws}"
     items = paginate(workspaces().templates(), "list", "template", parent=parent)
     return [{"name": i.get("name"), "tag_type": resolve_tag_type(i)} for i in items]
+
+
+def index_templates(
+    templates: list[dict[str, Any]],
+) -> tuple[dict[str, str], dict[str, dict[str, Any]]]:
+    """Read the installed templates once: what vendor, and what contract.
+
+    Returns `(platform_by_type, hints_by_type)`, both keyed by the `cvt_` tag
+    type. Every caller that has to answer "which vendor is this tag, and is it
+    a base tag?" needs exactly this pair, and it was written out three times --
+    in the prerequisite check, the identity audit and duplicate detection.
+    Three copies of one rule is three places for it to drift.
+
+    The key must come from `resolve_tag_type`: a gallery template's API type is
+    `cvt_<galleryTemplateId>`, not `cvt_<containerId>_<templateId>`, and
+    rebuilding it by hand produces "Unknown entity type" at write time.
+    """
+    platform_by_type: dict[str, str] = {}
+    hints_by_type: dict[str, dict[str, Any]] = {}
+
+    for template in templates:
+        tag_type = resolve_tag_type(template)
+        parsed = parse_template_parameters(template.get("templateData", ""))
+        hints_by_type[tag_type] = template_role_hints(parsed["parameters"])
+
+        gallery = template.get("galleryReference") or {}
+        blob = " ".join(
+            str(v).lower()
+            for v in (
+                gallery.get("owner"),
+                gallery.get("repository"),
+                template.get("name"),
+            )
+            if v
+        )
+        for key, platform in MEDIA_PLATFORMS.items():
+            if any(marker in blob for marker in platform.gallery_markers):
+                platform_by_type[tag_type] = key
+                break
+
+    return platform_by_type, hints_by_type

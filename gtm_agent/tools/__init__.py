@@ -8,8 +8,10 @@ from .gtm_folders import create_folder
 from .gtm_folders import get_folder_map
 from .gtm_folders import list_folder_entities
 from .gtm_folders import move_entities_to_folder
+from .gtm_duplicates import find_duplicate_tags
+from .gtm_creation_gate import preview_tag_conflicts
 from .gtm_identity_audit import check_id_consistency
-from .gtm_read import check_tagging_prerequisites
+from .gtm_prerequisites import check_tagging_prerequisites
 from .gtm_read import find_broken_references
 from .gtm_read import get_container_snapshot
 from .gtm_read import get_tag
@@ -49,6 +51,8 @@ READ_TOOLS = [
     check_tagging_prerequisites,
     check_id_consistency,
     find_broken_references,
+    find_duplicate_tags,
+    preview_tag_conflicts,
     get_workspace_status,
     get_container_snapshot,
 ]
@@ -89,6 +93,8 @@ __all__ = [
     "create_trigger",
     "create_variable",
     "find_broken_references",
+    "find_duplicate_tags",
+    "preview_tag_conflicts",
     "get_container_snapshot",
     "get_entity_spec",
     "get_folder_map",

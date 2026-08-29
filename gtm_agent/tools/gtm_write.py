@@ -21,6 +21,9 @@ from .gtm_client import paginate
 from .gtm_client import parameters_to_dict
 from .gtm_client import tool_errors
 from .gtm_client import workspaces
+import logging
+
+from .gtm_creation_gate import conflicts_with_existing
 from .gtm_templates import installed_template_types
 from .gtm_templates import resolve_installed_template
 from .gtm_templates import template_role_hints
@@ -31,6 +34,8 @@ from .tag_specs import TAG_SPECS
 from .tag_specs import TRIGGER_TYPES
 from .tag_specs import format_problems
 from .tag_specs import validate_entity
+
+logger = logging.getLogger(__name__)
 
 _ENTITY_RESOURCES = {
     "tag": ("tags", "tagId"),
@@ -175,6 +180,93 @@ def _trigger_problems(
             ),
         }
     ]
+
+
+def _duplicate_gate(
+    tag_type: str,
+    config: dict[str, Any],
+    name: str,
+    firing_trigger_ids: Optional[list[str]],
+    confirm_duplicate: bool,
+    account_id: Optional[str],
+    container_id: Optional[str],
+    workspace_id: Optional[str],
+    exclude_tag_id: Optional[str] = None,
+) -> tuple[list[dict[str, str]], dict[str, Any]]:
+    """Refuse to write a tag that would duplicate one already in the workspace.
+
+    This used to be a warning attached to the created tag, which got the order
+    backwards: the user was told about the duplicate *after* it existed, and
+    the cleanup was theirs. Governance means the question is asked first.
+
+    Returns `(problems, report)`. A blocking conflict comes back with severity
+    `error`, so `create_tag` returns it and writes nothing. The user sees what
+    already exists, decides, and only then is `confirm_duplicate=True` passed
+    -- which downgrades the same finding to a warning and lets the write
+    through. The flag is the user's decision to record, never the agent's.
+
+    A lookup failure must not block a write: an unreachable API would
+    otherwise make the whole tool unusable. It degrades to no check, loudly.
+    """
+    try:
+        report = conflicts_with_existing(
+            tag_type, config, name, firing_trigger_ids,
+            account_id, container_id, workspace_id, exclude_tag_id,
+        )
+    except Exception:  # pragma: no cover - a lookup failure must not block
+        logger.warning("Could not check the workspace for duplicates", exc_info=True)
+        return [
+            {
+                "severity": "warning",
+                "message": (
+                    "The duplicate check could not run, so this tag was NOT "
+                    "compared with what already exists."
+                ),
+                "fix": (
+                    "Run find_duplicate_tags() afterwards and tell the user the "
+                    "check was skipped."
+                ),
+            }
+        ], {}
+
+    problems: list[dict[str, str]] = []
+    for conflict in report.get("blocking_conflicts", []):
+        listing = "; ".join(
+            f"{t['name']} (id {t['tagId']}, type {t.get('type', '?')})"
+            for t in conflict["tags"]
+        )
+        problems.append(
+            {
+                "severity": "warning" if confirm_duplicate else "error",
+                "message": (
+                    f"[{conflict['kind']}] {conflict['headline']}: {listing}. "
+                    + conflict["why"]
+                ),
+                "fix": (
+                    "The user confirmed this duplication, so it was written "
+                    "anyway. Record why in the tag notes."
+                    if confirm_duplicate
+                    else "NOTHING WAS WRITTEN. Show the user what already "
+                    "exists, explain what you would add and why, and ask "
+                    "whether to proceed. Only if they say yes, call create_tag "
+                    "again with confirm_duplicate=true. Do not set that flag on "
+                    "your own judgement, and do not work around this by "
+                    "renaming the tag -- the comparison is by configuration, "
+                    "not by name."
+                ),
+            }
+        )
+
+    for note in report.get("advisory", []):
+        problems.append(
+            {
+                "severity": "info",
+                "message": f"[{note['kind']}] {note['headline']}. " + note["why"],
+                "fix": "Confirm the identifier is the intended one.",
+            }
+        )
+
+    return problems, report
 
 
 def _validate_template_tag(
@@ -414,6 +506,7 @@ def create_tag(
     folder_id: str = "",
     paused: bool = False,
     allow_no_trigger: bool = False,
+    confirm_duplicate: bool = False,
     account_id: Optional[str] = None,
     container_id: Optional[str] = None,
     workspace_id: Optional[str] = None,
@@ -427,11 +520,18 @@ def create_tag(
     and they do nothing at runtime, so a typo produces a tag that looks correct
     and never fires properly.
 
+    **The workspace is compared with this payload before anything is written.**
+    If a tag already configures the same account, already sends the same event,
+    or carries the same script, NOTHING is created: the conflict comes back as
+    an error naming the existing tags. Show it to the user, ask, and only if
+    they agree call again with `confirm_duplicate=True`. The comparison is by
+    configuration -- across Custom HTML, community templates and native Google
+    tags alike -- so renaming the tag does not get past it, and nothing should.
+
     Before calling: run `check_tagging_prerequisites` to confirm the container
-    has the foundation tag this product depends on, `list_tags` to confirm no
-    equivalent tag exists, and `list_triggers` / `list_built_in_triggers` for
-    the trigger ids. Use `get_entity_spec` when unsure which parameters a type
-    needs.
+    has the foundation tag this product depends on, and `list_triggers` /
+    `list_built_in_triggers` for the trigger ids. Use `get_entity_spec` when
+    unsure which parameters a type needs.
 
     Args:
         name: tag name, already following the project naming convention
@@ -455,6 +555,10 @@ def create_tag(
         allow_no_trigger: permit a tag with no firing trigger. Only for a tag
             fired exclusively by another tag's sequencing. Otherwise the tag
             would never execute, and the API accepts it without complaint.
+        confirm_duplicate: create the tag even though it duplicates an existing
+            one. **Only ever set this after the user has seen the conflict and
+            explicitly agreed to it in the conversation.** It records their
+            decision; it is not a way to silence the check.
         account_id: account id. Falls back to the .env value.
         container_id: container id. Falls back to the .env value.
         workspace_id: workspace id. Falls back to the .env value.
@@ -476,9 +580,19 @@ def create_tag(
     # silently; a tag with no trigger never runs. Both are accepted by the API.
     problems += _reference_problems(config, account_id, container_id, workspace_id)
     problems += _trigger_problems(tag_type, firing_trigger_ids, allow_no_trigger)
+    duplicate_problems, duplicate_report = _duplicate_gate(
+        tag_type, config, name, firing_trigger_ids, confirm_duplicate,
+        account_id, container_id, workspace_id,
+    )
+    problems += duplicate_problems
 
     if any(p["severity"] == "error" for p in problems):
-        return format_problems("tag", tag_type, problems)
+        refusal = format_problems("tag", tag_type, problems)
+        if duplicate_report.get("blocking_conflicts"):
+            refusal["created"] = False
+            refusal["duplicate_conflicts"] = duplicate_report["blocking_conflicts"]
+            refusal["next_step"] = duplicate_report["next_step"]
+        return refusal
 
     body: dict[str, Any] = {"name": name, "type": tag_type}
     if config:
@@ -520,6 +634,7 @@ def update_tag(
     parameters_json: str = "",
     firing_trigger_ids: Optional[list[str]] = None,
     notes: str = "",
+    confirm_duplicate: bool = False,
     account_id: Optional[str] = None,
     container_id: Optional[str] = None,
     workspace_id: Optional[str] = None,
@@ -531,6 +646,14 @@ def update_tag(
     `fingerprint` so it never silently overwrites someone else's edit in the
     same workspace.
 
+    **Changing parameters runs the same duplication check as `create_tag`.**
+    Pointing an existing tag at an account, destination or event that another
+    tag already covers produces exactly the duplication creating a new tag
+    would, by a quieter route. When that happens NOTHING is written: relay the
+    conflict, ask, and only then call again with `confirm_duplicate=True`. The
+    tag being edited is excluded from the comparison, so a no-op edit is never
+    reported as a conflict with itself.
+
     Args:
         tag_id: numeric tag id.
         name: new name. Empty keeps the current one.
@@ -539,6 +662,10 @@ def update_tag(
             of what already exists.
         firing_trigger_ids: new firing trigger list. None keeps the current one.
         notes: new notes. Empty keeps the current ones.
+        confirm_duplicate: apply the change even though it duplicates an
+            existing tag. **Only after the user has seen the conflict and
+            agreed.** It records their decision; it is not a way to silence the
+            check.
         account_id: account id. Falls back to the .env value.
         container_id: container id. Falls back to the .env value.
         workspace_id: workspace id. Falls back to the .env value.
@@ -565,8 +692,25 @@ def update_tag(
         problems += _reference_problems(
             merged, account_id, container_id, workspace_id
         )
+        duplicate_problems, duplicate_report = _duplicate_gate(
+            tag_type,
+            merged,
+            name or current.get("name", ""),
+            body.get("firingTriggerId"),
+            confirm_duplicate,
+            account_id,
+            container_id,
+            workspace_id,
+            exclude_tag_id=str(tag_id),
+        )
+        problems += duplicate_problems
         if any(p["severity"] == "error" for p in problems):
-            return format_problems("tag", tag_type, problems)
+            refusal = format_problems("tag", tag_type, problems)
+            if duplicate_report.get("blocking_conflicts"):
+                refusal["updated"] = False
+                refusal["duplicate_conflicts"] = duplicate_report["blocking_conflicts"]
+                refusal["next_step"] = duplicate_report["next_step"]
+            return refusal
         body["parameter"] = to_gtm_parameters(merged, tag_type)
 
     if settings.dry_run:

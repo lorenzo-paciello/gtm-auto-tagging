@@ -168,3 +168,58 @@ def find_near_miss_references(
             )
     return matches
 
+
+
+#: Variable types whose possible outputs can be read without running the
+#: container. A lookup table cannot be reduced to one value, but the set of
+#: values it can produce is known, and that is enough to ask "could this
+#: variable already be carrying the id I am about to add?"
+_TABLE_TYPES = ("smm", "remm")
+
+
+def variable_value_candidates(
+    variables: list[dict[str, Any]],
+) -> dict[str, set[str]]:
+    """Every literal value each variable could resolve to.
+
+    `constant_values` answers "what IS this variable" and only Constants can
+    answer it. This answers the weaker but far more useful question: "what
+    COULD it be?"
+
+    It matters because governed containers route by lookup table. One real
+    container has a RegEx table mapping 27 URL patterns to 27 different GA4
+    measurement ids, and a single Google Tag whose `tagId` is that variable. A
+    check that only resolves Constants sees `{{[ED]ID-Metrica-Estados}}`,
+    resolves nothing, and reports a brand-new Google Tag for one of those 27
+    ids as perfectly clean -- when the property is already configured.
+
+    A `{{Reference}}` among the outputs is skipped rather than followed: one
+    level of indirection is worth reading, a chain of them is guesswork.
+    """
+    candidates: dict[str, set[str]] = {}
+    for variable in variables:
+        name = variable.get("name")
+        if not name:
+            continue
+        values: set[str] = set()
+        parameters = variable.get("parameters") or {}
+        variable_type = variable.get("type")
+
+        if variable_type == "c":
+            value = parameters.get("value")
+            if value is not None:
+                values.add(str(value).strip())
+        elif variable_type in _TABLE_TYPES:
+            for row in parameters.get("map") or []:
+                if isinstance(row, dict):
+                    value = row.get("value")
+                    if isinstance(value, str) and value.strip():
+                        values.add(value.strip())
+            default = parameters.get("defaultValue")
+            if isinstance(default, str) and default.strip():
+                values.add(default.strip())
+
+        values = {v for v in values if not (v.startswith("{{") and v.endswith("}}"))}
+        if values:
+            candidates[name] = values
+    return candidates

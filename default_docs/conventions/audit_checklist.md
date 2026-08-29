@@ -66,6 +66,7 @@ evidence (entity name and id).
 - [ ] No duplicate variable names
 - [ ] `find_broken_references()` returns `clean: true`
 - [ ] `check_id_consistency()` returns `clean: true`
+- [ ] `find_duplicate_tags()` reviewed (a `medium` group is a question, not a defect)
 
 These two tools cover four failures that are invisible in the GTM UI:
 
@@ -74,6 +75,7 @@ These two tools cover four failures that are invisible in the GTM UI:
 | `{{Name}}` pointing at nothing | resolves to an empty string; the tag fires and sends blank |
 | Tag with no firing trigger | never executes |
 | A destination id no base tag configures | the tag fires and the data goes to a property nobody watches |
+| The same pixel installed by template AND as Custom HTML | both fire; a type-based scan sees only one |
 | Two variables differing only in case | fixing one leaves the tags on the other still empty |
 
 The third is the one an eyeball audit never finds: `G-0987654321` is a

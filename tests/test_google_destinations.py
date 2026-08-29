@@ -26,7 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from gtm_agent.tools.gtm_read import (  # noqa: E402
+from gtm_agent.tools.gtm_prerequisites import (  # noqa: E402
     _PRODUCT_REQUIREMENTS,
     evaluate_requirement,
     google_tag_destination,

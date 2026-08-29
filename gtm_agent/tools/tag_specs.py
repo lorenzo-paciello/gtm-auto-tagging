@@ -21,7 +21,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from dataclasses import field
 from typing import Any
-from typing import Optional
 
 #: Parameters that must carry a non-`template` type. The flat JSON the agent
 #: writes cannot express these, so they are applied automatically on the way

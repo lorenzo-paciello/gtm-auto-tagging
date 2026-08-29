@@ -12,12 +12,11 @@ from typing import Optional
 from ..config import settings
 from .gtm_client import paginate
 from .gtm_client import parameters_to_dict
+from .gtm_client import setting_values
 from .gtm_client import tool_errors
 from .gtm_client import workspaces
 from .references import extract_references
-from .gtm_templates import parse_template_parameters
-from .gtm_templates import resolve_tag_type
-from .gtm_templates import template_role_hints
+from .gtm_templates import index_templates
 from .identifiers import classify_destination
 from .identifiers import constant_values
 from .identifiers import find_name_collisions
@@ -165,22 +164,7 @@ def audit_media_ids(
     the rest of the container points at another sends conversions to the wrong
     ad account, and nothing warns about it.
     """
-    hints_by_type: dict[str, dict[str, Any]] = {}
-    platform_by_type: dict[str, str] = {}
-    for template in templates:
-        tag_type = resolve_tag_type(template)
-        parsed = parse_template_parameters(template.get("templateData", ""))
-        hints_by_type[tag_type] = template_role_hints(parsed["parameters"])
-        gallery = template.get("galleryReference") or {}
-        blob = " ".join(
-            str(v).lower()
-            for v in (gallery.get("owner"), gallery.get("repository"), template.get("name"))
-            if v
-        )
-        for key, platform in MEDIA_PLATFORMS.items():
-            if any(marker in blob for marker in platform.gallery_markers):
-                platform_by_type[tag_type] = key
-                break
+    platform_by_type, hints_by_type = index_templates(templates)
 
     by_platform: dict[str, dict[str, list[dict[str, Any]]]] = {}
     for tag in tags:
@@ -190,13 +174,14 @@ def audit_media_ids(
             continue
         hints = hints_by_type.get(tag_type, {})
         flat = parameters_to_dict(tag.get("parameter"))
+        readable = {**setting_values(flat), **flat}
 
         id_parameter = next(
-            (p for p in hints.get("id_parameters", []) if p in flat), None
+            (p for p in hints.get("id_parameters", []) if p in readable), None
         )
         if not id_parameter:
             continue
-        value, kind = resolve_value(flat.get(id_parameter), constants)
+        value, kind = resolve_value(readable.get(id_parameter), constants)
         if kind in ("missing", "unresolved") or not value:
             continue
         by_platform.setdefault(platform, {}).setdefault(value, []).append(

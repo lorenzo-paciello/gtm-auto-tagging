@@ -18,33 +18,79 @@ creating a third-party event tag.**
 
 ## Platform reference
 
-| Platform | `product` key | Account id parameter | Base snippet marker | Event call |
-| --- | --- | --- | --- | --- |
-| Meta (Facebook) Pixel | `meta` | `pixelId` | `fbq('init', ...)` | `fbq('track', ...)` |
-| TikTok Pixel | `tiktok` | `pixel_code` | `ttq.load(...)`, `ttq.page()` | `ttq.track(...)` |
-| Pinterest Tag | `pinterest` | `tagId` | `pintrk('load', ...)` | `pintrk('track', ...)` |
-| LinkedIn Insight Tag | `linkedin` | `partnerId` | `_linkedin_partner_id` | `lintrk('track', ...)` |
-| Snap Pixel | `snapchat` | `accountId` * | `snaptr('init', ...)` | `snaptr('track', ...)` |
-| Microsoft Advertising UET | `microsoft_ads` | `tagId` | `uetq`, `bat.bing.com/bat.js` | `uetq.push('event', ...)` |
-| X (Twitter) Pixel | `x_twitter` | `pixelId` | `twq('config', ...)` | `twq('event', ...)` |
-| Reddit Pixel | `reddit` | `id` * | `rdt('init', ...)` | `rdt('track', ...)` |
-| Criteo Loader | `criteo` | `partnerId` * | `static.criteo.net/js/ld/ld.js` | `criteo_q.push(...)` |
+35 platforms are recognised, grouped by how their event tags relate to their
+base tag. That grouping is what decides whether a missing base tag is a fault
+at all: reporting one for an Awin sale tag would be a limitation the agent
+invented. `check_tagging_prerequisites` returns the group as `event_model`.
 
-\* Verified against the installed template. The column is a convenience only:
-the parameter names come from `get_template_spec`, never from this table --
-a template author can rename anything, and several already have.
+### `library` -- 27 platforms
 
-Account id formats:
+Event tags call a library the base tag loaded. **A missing base tag is blocking.**
 
-| Platform | Format |
-| --- | --- |
-| Meta | 15-16 digit numeric |
-| TikTok | 20-character alphanumeric pixel code |
-| Pinterest | 13-digit numeric |
-| LinkedIn | 6-8 digit numeric partner id |
-| Snapchat | UUID-style |
-| Microsoft Ads | 8-9 digit numeric UET tag id |
-| Reddit | advertiser id starting with `t2_` |
+| Platform | `product` key | Account id format |
+| --- | --- | --- |
+| Meta (Facebook) Pixel | `meta` | 15-16 digit numeric pixel id |
+| TikTok Pixel | `tiktok` | 20-character alphanumeric pixel code (e.g. C4A1B2C3D4E5F6G7H8I9) |
+| Pinterest Tag | `pinterest` | 13-digit numeric tag id |
+| LinkedIn Insight Tag | `linkedin` | 6-8 digit numeric partner id |
+| Snap Pixel | `snapchat` | UUID-style pixel id |
+| Microsoft Advertising UET | `microsoft_ads` | 8-9 digit numeric UET tag id |
+| X (Twitter) Pixel | `x_twitter` | alphanumeric pixel id (e.g. o1a2b) |
+| Reddit Pixel | `reddit` | advertiser id starting with t2_ |
+| Criteo OneTag | `criteo` | 5-6 digit numeric account id |
+| Taboola Pixel | `taboola` | numeric account id |
+| Outbrain Pixel | `outbrain` | alphanumeric marketer id |
+| AdRoll | `adroll` | 22-character advertiser id |
+| Quora Pixel | `quora` | 32-character hexadecimal pixel id |
+| Amazon Ads | `amazon_ads` | UUID-style tag id |
+| Adform | `adform` | numeric client id |
+| RTB House | `rtb_house` | advertiser hash |
+| Teads | `teads` | numeric analytics tag id |
+| Yandex Metrica | `yandex_metrica` | 8-9 digit numeric counter id |
+| LINE Tag | `line` | hyphenated alphanumeric tag id |
+| Kakao Pixel | `kakao` | 13-digit numeric track id |
+| Naver Common Tag | `naver` | account id starting with s_ |
+| VK Pixel | `vk` | pixel id starting with VK-RTRG- |
+| HubSpot | `hubspot` | numeric portal (hub) id |
+| Klaviyo | `klaviyo` | 6-character public API key (company id) |
+| Segment | `segment` | write key |
+| Mixpanel | `mixpanel` | 32-character hexadecimal project token |
+| Amplitude | `amplitude` | 32-character hexadecimal API key |
+
+### `standalone` -- 3 platforms
+
+Each tag carries its own account id. Nothing has to run first, so nothing can be missing.
+
+| Platform | `product` key | Account id format |
+| --- | --- | --- |
+| Awin | `awin` | numeric advertiser id |
+| Rakuten Advertising | `rakuten` | numeric merchant id |
+| Impact | `impact` | Universal Tracking Tag id (starts with A) |
+
+### `single` -- 5 platforms
+
+One install tag, no event tags depending on it. It just has to fire on every page, once.
+
+| Platform | `product` key | Account id format |
+| --- | --- | --- |
+| Hotjar | `hotjar` | numeric site id |
+| Microsoft Clarity | `clarity` | 10-character project id |
+| Crazy Egg | `crazy_egg` | 8-digit account number, split across the script path |
+| Lucky Orange | `lucky_orange` | alphanumeric site id |
+| Intercom | `intercom` | 8-character app id |
+
+Parameter names are deliberately absent from this table. They come from
+`get_template_spec`, never from documentation: a template author can rename
+anything, and several already have -- TikTok's official template uses
+snake_case `pixel_code`, Snapchat's uses `accountId` where every guess says
+`pixelId`, and Criteo's loader declares no event parameter at all.
+
+Adding a platform is one entry in `gtm_agent/tools/media_platforms.py`. That
+single entry reaches everything: the prerequisite check before a tag is
+created, the media listing, the identity audit and duplicate detection. There
+used to be two registries -- a short one for prerequisites and a longer one for
+duplicates -- and they drifted, so a container could be told its Taboola pixel
+was installed twice while the creator agent had never heard of Taboola.
 
 ## Why detection is heuristic
 
@@ -193,6 +239,123 @@ email       [TEXT]
     only when: ['hash equals non-hashed']
 ```
 
+### Before creating anything: the duplication gate
+
+`create_tag` compares the payload with the whole container before it writes,
+and **refuses** if it would duplicate something. Nothing is created. The
+conflict names the existing tags, and the decision is the user's:
+
+1. relay what already exists -- name and id, so they can look at it
+2. say what you would add and why
+3. ask
+4. only if they agree, call again with `confirm_duplicate=true`, and record
+   their reason in the tag `notes`
+
+Renaming the tag does not get past it: the comparison is by configuration.
+
+Seven kinds block. Four are about identity -- `initialisation`,
+`identical_configuration`, `duplicate_conversion`, `identical_script` -- and
+they compare **across implementations**: a native `awct` and a hand-written
+`gtag('event','conversion',{send_to:'AW-…/label'})` are the same conversion, an
+`flc` tag and a pasted Floodlight iframe counter are the same activity, and a
+`googtag` and a hand-written `gtag('config','G-…')` configure the same
+property. A half-finished migration is exactly where these hide from each
+other.
+
+`already_sent_by_a_base_tag` is the one that is easy to miss: a Google Tag
+sends `page_view` on its own, and a base pixel fires its own PageView when it
+loads, so a separate page-view event tag for the same account counts every page
+view twice.
+
+`possible_duplicate_via_variable` exists because a variable is not always one
+value. A container that routes GA4 by lookup table -- 27 URL patterns to 27
+measurement ids behind one Google Tag -- already covers all 27 properties, and
+a check that resolves only Constants would call a 28th tag for one of them
+clean.
+
+`duplicate_event_for_account` and `identical_configuration` block only when the
+triggers overlap. On different triggers they ask instead: a second placement of
+the same measurement on a separate interaction is ordinary work.
+
+A duplicate is not always a mistake. Two base tags with mutually exclusive
+triggers -- different domains, different environments -- are legitimate, and so
+is a `page_view` event tag when the base tag has `send_page_view` disabled.
+That is exactly why the flag exists and why only the user may set it.
+
+The check reads that switch from where GTM actually keeps it. `send_page_view`
+is **not** a top-level parameter: a Google Tag holds it in
+`configSettingsTable` as `{parameter, parameterValue}` rows, and a legacy GA4
+Configuration in `fieldsToSet` as `{name, value}`. The same is true of much
+else -- an account id can sit in a settings row as readily as in a top-level
+field. When you inspect a tag yourself, look inside its tables before
+concluding a setting is absent; a value you cannot see is not a value that is
+not there.
+
+For a plan with several tags, run `preview_tag_conflicts` on each first, so
+everything that already exists is presented in one message rather than
+discovered after two tags were written.
+
+### Duplication is a question about base tags only
+
+Most platforms carry the account id in exactly one place -- the initialisation
+call -- and their event tags use whichever library that call loaded:
+
+```javascript
+fbq('init', '123')            // the account lives here
+fbq('track', 'AddToCart')     // no account; uses the pixel above
+```
+
+So comparing every tag by account and event name reports noise rather than
+findings. On a real 180-tag container it produced ten groups, seven of which
+were legitimate repeats: twenty GA4 tags firing `click` on twenty pages, seven
+Meta `Lead` tags on seven campaigns. Restricting the comparison to
+initialisations left three groups, all real.
+
+`find_duplicate_tags()` therefore asks one narrow question -- **is this account
+initialised more than once?** -- and reports event tags separately, since an
+event tag cannot duplicate a base tag.
+
+The one exception is a conversion tag. A Google Ads conversion carries its own
+id and label, unlike a GA4 event, so two identical ones on the same trigger
+double-count. On different triggers it is usually deliberate.
+
+### A pixel written by hand is still that pixel
+
+A vendor pixel installed as Custom HTML or as a Custom Image URL is invisible
+to any check that reads tag types. That is how a container ends up with the
+same pixel twice -- once from the gallery template, once as a script -- with
+nothing reporting it. In one real 180-tag container, 19 of the pixels were
+hand-written.
+
+`find_duplicate_tags()` recognises all nine platforms in three written forms:
+
+| Form | Example |
+| --- | --- |
+| Init call | `fbq('init','123')`, `ttq.load('X')`, `_linkedin_partner_id = "5919468"` |
+| Per-call id | `fbq('trackSingleCustom','123','Click')`, `ttq.instance('X').track(...)` |
+| Image pixel / noscript | `facebook.com/tr?id=123&ev=PageView`, `ct.pinterest.com/v3/?tid=...`, `bat.bing.com/action/0?ti=...` |
+
+Two rules keep this honest:
+
+- **Match the raw parameter value, never a JSON dump.** `json.dumps` escapes
+  `"` as `\"`, so a double-quoted snippet stops matching. This once hid every
+  LinkedIn tag in a container while Meta kept working, purely because Meta's
+  snippet uses single quotes.
+- **A vendor domain is not always the ad product.** Microsoft Clarity is
+  heatmaps, not UET, and must not be reported as an ad account.
+
+Some snippets genuinely carry no account id:
+
+```javascript
+fbq('track', 'AddToCart', {...})   // uses the last-initialised pixel
+ttq.track('Registration')          // uses the loaded instance
+```
+
+There is nothing to extract, and guessing from the tag name would be an
+invention. These are reported under `unattributed_vendor_tags` -- they cannot
+be compared for duplication, and they break outright if the base pixel they
+depend on is ever removed.
+
 ### What is checked always, and what is registry-bound
 
 Two different mechanisms, and it is worth keeping them apart:
@@ -200,7 +363,7 @@ Two different mechanisms, and it is worth keeping them apart:
 | | Trigger | Scope |
 | --- | --- | --- |
 | **Parameter validation** (`get_template_spec`, `create_tag`) | the tag type starts with `cvt_` | **every** template, any vendor |
-| **Setup-tag prerequisite** (`check_tagging_prerequisites`) | the platform is in `media_platforms.py` | the nine listed advertising platforms |
+| **Setup-tag prerequisite** (`check_tagging_prerequisites`) | the platform is in `media_platforms.py` | the 35 listed platforms |
 
 So a CMP, an A/B testing tool or an in-house template gets full parameter
 validation -- required fields, allowed values, regex, unknown-key warnings --
@@ -212,10 +375,11 @@ The reverse is the gap: nothing tells the agent that an unregistered vendor
 needs a base tag before its event tags. Adding one is a single registry entry.
 
 **What is not generic** is the platform registry in `media_platforms.py`, which
-powers `check_tagging_prerequisites`: it knows nine platforms by gallery owner
-and parameter names. A template outside that list can still have tags created
-from it; what will not happen automatically is the "does a setup tag already
-exist for this platform" check. Adding a platform is one entry in the registry.
+powers `check_tagging_prerequisites`: it knows 35 platforms by gallery owner,
+initialisation snippet and parameter names. A template outside that list can
+still have tags created from it; what will not happen automatically is the
+"does a setup tag already exist for this platform" check. Adding a platform is
+one entry in the registry.
 
 ### Does a missing setup tag actually break anything?
 

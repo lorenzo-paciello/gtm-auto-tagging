@@ -321,7 +321,8 @@ gtm-auto-tagging/
 │   ├── test_google_destinations.py # G-/AW-/DC-/GT- destination matching
 │   ├── test_references.py         # {{Variable}} integrity, firing triggers
 │   ├── test_identifiers.py        # destination ids, near-miss references
-│   └── test_tool_registry.py      # no tool registered twice per agent
+│   ├── test_tool_registry.py      # no tool registered twice per agent
+│   └── test_tag_identity.py       # duplicates across implementations
 └── gtm_agent/
     ├── agent.py             # root agent
     ├── config.py            # settings from .env
@@ -335,7 +336,8 @@ gtm-auto-tagging/
     │   └── auditor/
     ├── tools/
     │   ├── gtm_client.py       # auth, pagination, retries, error handling
-    │   ├── gtm_read.py         # listings, prerequisites, container snapshot
+    │   ├── gtm_read.py         # listings, broken references, snapshot
+    │   ├── gtm_prerequisites.py # does the container have the foundation?
     │   ├── gtm_write.py        # create/update tags, triggers, variables
     │   ├── gtm_folders.py      # folders and entity movement
     │   ├── gtm_templates.py    # community templates: cvt_ types + param contracts
@@ -343,6 +345,11 @@ gtm-auto-tagging/
     │   ├── references.py       # {{Variable}} resolution against the workspace
     │   ├── identifiers.py      # destination-id comparison, name collisions
     │   ├── gtm_identity_audit.py # check_id_consistency
+    │   ├── tag_identity.py     # (product, account, action) fingerprint
+    │   ├── media_platforms.py  # THE registry: 35 platforms
+    │   ├── vendor_snippets.py  # the matching engine over that registry
+    │   ├── gtm_duplicates.py   # the audit: what is already duplicated
+    │   ├── gtm_creation_gate.py # the pre-write check: would this duplicate?
     │   ├── media_platforms.py  # third-party pixel detection registry
     │   └── docs_tools.py       # documentation read and write
     └── skills/
@@ -355,7 +362,7 @@ gtm-auto-tagging/
 `get_tag`, `list_triggers`, `list_built_in_triggers`, `list_variables`,
 `list_built_in_variables`, `list_folders`, `list_templates`,
 `get_template_spec`, `check_tagging_prerequisites`, `find_broken_references`, `check_id_consistency`,
-`get_workspace_status`, `get_container_snapshot`
+`find_duplicate_tags`, `get_workspace_status`, `get_container_snapshot`
 
 **Write** — `get_entity_spec`, `create_tag`, `update_tag`, `create_trigger`,
 `create_variable`, `rename_entity`
@@ -437,6 +444,155 @@ The near-miss case is the one that costs the most time: GTM matches variable
 names byte for byte, so creating the right variable fixes only the tags that
 spelled it the same way and leaves the rest silently empty. The fix given is to
 repoint the tags, never to create a second variable.
+
+## Duplicate detection
+
+Duplication is a question about **base tags**. On most platforms the account id
+appears only in the initialisation call, and event tags use whichever library
+that call loaded:
+
+```javascript
+fbq('init', '123')            // the account lives here
+fbq('track', 'AddToCart')     // no account; uses the pixel above
+```
+
+Comparing every tag by account and event name reports noise. On a real 180-tag
+container it produced ten groups, seven of them legitimate repeats — twenty GA4
+tags firing `click` on twenty pages. Restricting the comparison to
+initialisations left three groups, all real.
+
+`find_duplicate_tags()` asks one narrow question — *is this account initialised
+more than once?* — across four sections:
+
+| Section | Severity | What it is |
+| --- | --- | --- |
+| `base` | critical / high | the same account initialised twice; critical when the tags share a trigger or mix implementations |
+| `conversion` | critical / medium | identical Google Ads or Floodlight configuration — these carry their own id and label, unlike a GA4 event |
+| `script` | high | identical Custom HTML bodies for a vendor no registry names |
+| `event_tags_depending_on_a_base_tag` | — | event calls that initialise nothing; not duplicates, but they break if their base tag goes |
+
+It also returns `accounts_initialised`, the container's full pixel inventory —
+for most users the first complete list of every account their site loads.
+
+### Coverage beyond the majors
+
+Containers in the wild carry far more than the advertising majors, so there are
+two mechanisms:
+
+1. **[media_platforms.py](gtm_agent/tools/media_platforms.py)** — one registry
+   of 35 platforms (Meta, TikTok, Pinterest, LinkedIn, Snapchat, Microsoft, X,
+   Reddit, Criteo, Taboola, Outbrain, AdRoll, Quora, Amazon, Awin, Rakuten,
+   Impact, Adform, RTB House, Teads, Yandex, LINE, Kakao, Naver, VK, Hotjar,
+   Clarity, HubSpot, Klaviyo, Intercom, Segment, Mixpanel, Amplitude, Crazy
+   Egg, Lucky Orange). Each captures the account id, in script form and in
+   image-pixel/noscript URL form, and accepts a `{{Variable}}` where the id
+   would be — hand-written pixels are usually parameterised. One entry reaches
+   everything: prerequisite checks, media listing, identity audit, duplicates.
+2. **Script fingerprint** — two Custom HTML tags whose bodies match, ignoring
+   whitespace and `{{Variable}}` references. This covers the vendor nobody
+   anticipated. The registry earns its keep by supplying the account id:
+   without it, two base tags for *different* accounts of one vendor would look
+   identical.
+
+### The gate before the write
+
+Detection is worth nothing if it reports after the fact. Two failures from real
+use made that concrete: a Meta base pixel was created for an id already
+installed as Custom HTML and the warning arrived *after* the tag existed, and a
+GA4 `page_view` event tag was created for a measurement id that already has a
+Google Tag with no warning at all.
+
+So `create_tag` and `update_tag` now compare the payload with the whole
+container **before** writing, and refuse. (An update excludes the tag being
+edited, or every edit would report the tag as a duplicate of itself — but
+pointing an existing tag at an account another tag already owns produces the
+same duplication by a quieter route, and is blocked.) Nothing is created; the conflict comes back naming the
+existing tags. The agent relays it, the user decides, and only then is
+`confirm_duplicate=True` passed — a flag that records the user's decision, not
+one the agent may set on its own. Four kinds block:
+
+| Kind | Blocks | What it catches |
+| --- | --- | --- |
+| `initialisation` | yes | the account is already configured — native tag, template, Custom HTML, or a hand-written `gtag('config', …)` |
+| `already_sent_by_a_base_tag` | yes | the event is already automatic: a Google Tag sends `page_view` itself, a base pixel fires its own PageView |
+| `identical_configuration` | on overlapping triggers | a tag of this type already has this identity |
+| `duplicate_conversion` | yes | the same Google Ads conversion or Floodlight activity, native **or** pasted as Custom HTML |
+| `possible_duplicate_via_variable` | yes | an existing tag's id is a lookup table that can resolve to this one |
+| `identical_script` | yes | the same script, even for a vendor no registry names |
+| `duplicate_event_for_account` | on overlapping triggers | this platform already sends this event for this account |
+| `same_identifier` / `missing_prerequisite` / `prefer_template` | no | context, an absent foundation, a template that should be used instead |
+
+`already_sent_by_a_base_tag` is the one no base-tag comparison can find. The
+GA4 event tag initialises nothing and the Google Tag is not an event tag, yet
+together they count every page view twice in every report in the property.
+
+It also has to read the *right* thing. `send_page_view` is not a top-level
+parameter: a Google Tag keeps it in `configSettingsTable` as rows of
+`{parameter, parameterValue}`, and a GA4 Configuration in `fieldsToSet` as
+`{name, value}`. Reading only the top level told a user their page-view tag
+would double-count on a property where they had just turned it off — and the
+test meant to cover that case had invented a top-level parameter, so it passed
+while the real case failed. `setting_values()` flattens those tables, and every
+place that reads a tag's configuration now goes through it or through
+`scalar_values()`.
+
+The gate also has to *not* fire. A container holds dozens of GA4 event tags
+sharing one measurement id; refusing the next one would make the tool unusable.
+A shared identifier is reported as `advisory` and never blocks — and
+`eventName: "scroll_75"` is read as an event, not an identifier, because the
+parameter name decides. Getting that backwards made two unrelated scroll tags
+compare as identical.
+
+The sharpest version of that mistake: identity used to be built from values
+that *look* like ids. Floodlight's `groupTag` (`sale`) and `activityTag`
+(`purch0`) are short words with no digits, so both were ignored — and every new
+activity on an advertiser compared identical to every other one. The check
+would have blocked every Floodlight tag a user ever created. `IDENTITY_KEYS`
+now states what actually identifies each type, and anything unlisted falls back
+to full parameter equality, which cannot over-match.
+
+### Coping with vendors nobody registered
+
+The blocking kinds lean on the registry. The advisory one deliberately does
+not: `looks_like_an_identifier` recognises an account id by **shape** —
+`G-`/`AW-`/`DC-` prefixes, a 5–20 digit run, a `t2_` id, a UUID, or a token
+mixing letters and digits — and then searches every existing tag's parameters
+for it, expanding `{{Constant}}` references on both sides. So even for a tool
+the agent has never heard of, it can still answer *"this id already appears in
+tag 327"*. `identical_script` covers the same gap from the other direction.
+
+### Not every platform has a base tag to miss
+
+Each entry declares an `event_model`, because "missing base tag" is not a fault
+everywhere:
+
+| Model | Platforms | Missing base tag |
+| --- | --- | --- |
+| `library` | 27 — Meta, TikTok, Pinterest, Criteo, Taboola, Segment… | **blocking**: event tags call a library the base tag loaded |
+| `standalone` | Awin, Rakuten, Impact | not a fault — each tag carries its own account id |
+| `single` | Hotjar, Clarity, Crazy Egg, Lucky Orange, Intercom | no event tags depend on it; it just has to fire once, everywhere |
+
+Without that distinction the agent would invent a limitation — telling a user
+their Awin sale tag is broken because no Awin "base tag" exists.
+
+### Traps this had to get right Patterns were originally matched against a
+`json.dumps` of the parameters, which escapes `"` as `\"` — every
+double-quoted snippet silently stopped matching, hiding all the LinkedIn tags
+in a container while Meta kept working because its snippet uses single quotes.
+`eventName: "standard"` in Meta's template is a **mode selector**, not the
+event. And `eventId` deduplicates a single hit against the Conversions API — it
+is unique per fire, so treating it as the account id groups unrelated tags.
+
+A fourth only appeared once the registry grew: several vendors put an
+event-shaped call inside their own base snippet. Taboola's base pushes
+`name: 'page_view'`, AdRoll's loader calls `__adroll.record_user`, VK's base
+ends with `VK.Retargeting.Hit()`, and Criteo's homepage tag pushes `viewHome`
+next to `setAccount`. A naive "if it looks like an event, it is not a base tag"
+rule made every one of those base tags invisible. Conversely Taboola, Kakao,
+Criteo, Naver, AdRoll and VK repeat the account id in *every* call, so matching
+an init pattern is not proof of initialisation — `events_repeat_the_id` lets an
+event match veto it. [tests/test_vendor_registry.py](tests/test_vendor_registry.py)
+runs a realistic snippet for all 35 vendors against both rules.
 
 ## Usage and quota
 

@@ -204,6 +204,60 @@ def parameters_to_dict(parameters: Optional[list[dict[str, Any]]]) -> dict[str, 
     return result
 
 
+#: How GTM's settings tables name their two columns. A Google Tag writes
+#: `{parameter, parameterValue}`, a GA4 Configuration writes `{name, value}`,
+#: and templates use whichever their author chose.
+_SETTING_COLUMNS = (
+    ("parameter", "parameterValue"),
+    ("name", "value"),
+    ("fieldName", "value"),
+    ("key", "value"),
+)
+
+
+def setting_values(flat: dict[str, Any]) -> dict[str, str]:
+    """Settings held in a tag's nested tables, flattened to `name -> value`.
+
+    Half a tag's real configuration is not in its top-level parameters. A
+    Google Tag keeps `send_page_view` in `configSettingsTable`, a list of
+    `{parameter, parameterValue}` rows; a GA4 Configuration keeps the same
+    thing in `fieldsToSet` as `{name, value}`. Reading only the top level
+    misses them entirely -- which made the agent tell a user that a page_view
+    event tag would double-count, on a property where they had just turned
+    `send_page_view` off.
+
+    Later rows win, matching how GTM applies them.
+    """
+    settings: dict[str, str] = {}
+    for value in flat.values():
+        if not isinstance(value, list):
+            continue
+        for row in value:
+            if not isinstance(row, dict):
+                continue
+            for name_key, value_key in _SETTING_COLUMNS:
+                name = row.get(name_key)
+                if isinstance(name, str) and name and value_key in row:
+                    settings[name] = str(row[value_key])
+                    break
+    return settings
+
+
+def scalar_values(value: Any) -> list[str]:
+    """Every string anywhere in a flattened parameter tree.
+
+    An account id can sit in a nested settings row as easily as in a top-level
+    parameter, and a search that only reads the top level quietly misses it.
+    """
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [v for item in value.values() for v in scalar_values(item)]
+    if isinstance(value, list):
+        return [v for item in value for v in scalar_values(item)]
+    return []
+
+
 def summarize_tag(tag: dict[str, Any]) -> dict[str, Any]:
     return {
         "tagId": tag.get("tagId"),

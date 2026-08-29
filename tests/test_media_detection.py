@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from gtm_agent.tools.gtm_read import (  # noqa: E402
+from gtm_agent.tools.gtm_prerequisites import (  # noqa: E402
     _detect_media_platforms,
     evaluate_consent_initialization,
 )
@@ -182,10 +182,32 @@ def test_specific_parameter_plus_name_is_enough():
 
 
 def test_html_base_snippet_is_a_strong_signal():
-    html = [tag(9, "Anonymous script", "html", {"html": "fbq('init', '123');"})]
+    html = [
+        tag(9, "Anonymous script", "html", {"html": "fbq('init', '156914648903155');"})
+    ]
     found = _detect_media_platforms(html, TEMPLATES)
     entry = found["meta"]["setup_tags"][0]
     assert entry["confidence"] == "high"
+
+
+def test_a_pixel_id_that_is_a_gtm_variable_is_still_recognised():
+    """Hand-written pixels are usually parameterised, not hardcoded."""
+    html = [
+        tag(
+            9,
+            "Anonymous script",
+            "html",
+            {"html": "fbq('init', '{{CONST - Meta Pixel ID}}'); fbq('track','PageView');"},
+        )
+    ]
+    found = _detect_media_platforms(html, TEMPLATES)
+    assert found["meta"]["setup_tags"][0]["confidence"] == "high"
+
+
+def test_an_implausible_id_is_not_a_pixel():
+    """`fbq('init', '123')` is a snippet someone was drafting, not a pixel."""
+    html = [tag(9, "Draft", "html", {"html": "fbq('init', '123');"})]
+    assert "meta" not in _detect_media_platforms(html, TEMPLATES)
 
 
 def test_template_bootstrap_detection():
