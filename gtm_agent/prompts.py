@@ -532,11 +532,24 @@ yet. Four things block:
 | `identical_script` | this exact script already exists, even for a vendor no registry names |
 | `duplicate_event_for_account` | this platform already sends this event for this account |
 
-Two of these depend on the **trigger**: `identical_configuration` and
-`duplicate_event_for_account` block when the triggers overlap and merely ask
-when they do not. A second placement of the same measurement on a different
-interaction is normal work, and blocking it would teach you to pass
-`confirm_duplicate` without reading.
+`duplicate_event_for_account` and, for GA4 events and media tags,
+`identical_configuration` depend on the **trigger**: they block when the
+triggers overlap and merely ask when they do not. A second placement of the
+same GA4 event on a different interaction is normal work, and blocking it would
+teach you to pass `confirm_duplicate` without reading.
+
+**Conversions are the exception and always block.** A second Google Ads
+conversion with the same id and label, or a second Floodlight activity with the
+same advertiser/group/activity, is the same conversion action counted twice --
+the platform cannot tell the two tags apart, whatever triggers them. The same
+holds for base tags: `googtag`, `gaawc` and `gclidw`.
+
+Two things the check reads that are easy to miss when you look yourself. A
+Google Tag's destination is often a **lookup table**, not a literal, so it can
+already cover the property you are adding -- the conflict says so and names the
+variable. And GTM has **built-in tag types for some vendors** (LinkedIn Insight
+is `bzi`): they are neither `cvt_` nor Custom HTML, so listing by template or
+by snippet misses them entirely.
 
 Advisory entries never block: `same_identifier` (the id appears elsewhere --
 normal), `missing_prerequisite` (the Conversion Linker or base tag this product

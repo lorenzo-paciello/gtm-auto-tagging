@@ -34,6 +34,9 @@ from typing import Optional
 from .gtm_client import parameters_to_dict
 from .gtm_client import scalar_values
 from .gtm_client import setting_values
+from .media_platforms import MEDIA_PLATFORMS
+from .media_platforms import NATIVE_MEDIA_TYPES
+from .tag_specs import TAG_SPECS
 from .vendor_snippets import find_event_only_platforms
 from .vendor_snippets import find_initialisations
 from .vendor_snippets import platform_label
@@ -166,7 +169,11 @@ class Initialisation:
 
     @property
     def label(self) -> str:
-        return f"{PRODUCT_LABELS.get(self.product, platform_label(self.product))} / {self.account}"
+        if self.product.startswith("native:"):
+            name = f"Built-in '{self.product.split(':', 1)[1]}' tag"
+        else:
+            name = PRODUCT_LABELS.get(self.product, platform_label(self.product))
+        return f"{name} / {self.account}"
 
 
 def _literal(value: Any, constants: dict[str, str]) -> Optional[str]:
@@ -180,6 +187,36 @@ def _literal(value: Any, constants: dict[str, str]) -> Optional[str]:
     if reference:
         return constants.get(reference.group(1).strip()) or text
     return text
+
+
+#: Google's own tag types. Anything else that is neither a community template
+#: (`cvt_`) nor hand-written script is one of GTM's built-in vendor types.
+_GOOGLE_OWN_TYPES = frozenset(TAG_SPECS) | {"gclidw", "zone"}
+
+_ACCOUNT_SHAPE = re.compile(r"^(?:\d{4,20}|[A-Za-z0-9_-]{8,64}|\{\{[^{}]+\}\})$")
+
+
+def is_unrecognised_vendor_type(tag_type: str) -> bool:
+    """A built-in tag type this project has no name for.
+
+    `NATIVE_MEDIA_TYPES` names the ones it can, but no hardcoded list is ever
+    complete: GTM ships built-in types for vendors that come and go, and this
+    project has to work in containers it has never seen. So the rule is
+    structural rather than enumerated -- not Google's own, not a template, not
+    hand-written script. Such a tag is still compared with others of its own
+    type and still appears in the account inventory. What is missing is only
+    the vendor's NAME, which no comparison needs.
+    """
+    return bool(
+        tag_type
+        and tag_type not in _GOOGLE_OWN_TYPES
+        and not tag_type.startswith("cvt_")
+    )
+
+
+def _looks_like_an_account(value: Any) -> bool:
+    """Loose enough for any vendor, strict enough to skip `true` and `_gcl`."""
+    return bool(_ACCOUNT_SHAPE.match(str(value).strip()))
 
 
 def _script_body(flat: dict[str, Any]) -> str:
@@ -230,6 +267,41 @@ def initialisations_of(
         product, key = _NATIVE_BASE[tag_type]
         account = _literal(flat.get(key), constants)
         return [Initialisation(product, account, "native")] if account else []
+
+    # A built-in vendor tag type. The type names the platform outright, so
+    # the account id can be read from whichever parameter holds it -- the
+    # platform's declared names first, then anything shaped like an id. That
+    # avoids hardcoding a parameter name per type, which is exactly the kind of
+    # guess that has been wrong every time.
+    native_platform = NATIVE_MEDIA_TYPES.get(tag_type)
+    if native_platform:
+        readable = {**setting_values(flat), **flat}
+        registered = MEDIA_PLATFORMS[native_platform].id_parameters
+        account = next(
+            (
+                _literal(readable[key], constants)
+                for key in (*registered, *readable)
+                if readable.get(key) and _looks_like_an_account(readable[key])
+            ),
+            None,
+        )
+        return [Initialisation(native_platform, account, "native")] if account else []
+
+    if is_unrecognised_vendor_type(tag_type):
+        readable = {**setting_values(flat), **flat}
+        account = next(
+            (
+                _literal(value, constants)
+                for value in readable.values()
+                if _looks_like_an_account(value)
+            ),
+            None,
+        )
+        return (
+            [Initialisation(f"native:{tag_type}", account, "native")]
+            if account
+            else []
+        )
 
     platform = platform_by_type.get(tag_type)
     if platform:

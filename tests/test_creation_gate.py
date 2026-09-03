@@ -20,6 +20,19 @@ Two failures reported from real use drive this file:
    passed while the real case failed. `settings_table` below builds the shape
    the API actually returns.
 
+4. A Google Ads conversion with an existing id and label was created anyway,
+   because its trigger differed and the identity comparison had been made
+   trigger-aware. That downgrade is right for a GA4 event placed on a second
+   interaction and wrong for a conversion action, which Google Ads cannot tell
+   apart from its twin.
+5. A GA4 page_view tag was created for a property whose Google Tag reaches it
+   through a lookup table -- the base tag's account was `{{Variable}}` and
+   never matched the literal id. The same table then produced the opposite
+   error, reporting a conflict against event tags that send different events.
+6. Two LinkedIn Insight tags were missing from the audit. `bzi` is one of GTM's
+   own built-in vendor tag types: neither `cvt_` nor Custom HTML, so nothing in
+   the template or snippet machinery saw it.
+
 `update_tag` runs the same check, with one difference that matters: the tag
 being edited is excluded from the comparison, or every edit would report the
 tag as a duplicate of itself.
@@ -1088,6 +1101,318 @@ def test_a_different_pixel_of_the_same_platform_is_not_a_duplicate():
     check(
         "duplicate_event_for_account" not in kinds(result),
         f"two ad accounts are two businesses, got {kinds(result)}",
+    )
+
+
+# ===========================================================================
+# 12. Four failures found by testing against a real container
+# ===========================================================================
+def test_a_built_in_vendor_tag_type_is_a_base_tag():
+    """GTM ships its own tag types for some vendors, and they were invisible.
+
+    LinkedIn Insight is `bzi`, a built-in type -- neither `cvt_` nor Custom
+    HTML, so nothing in the gallery-marker or snippet machinery saw it. The
+    audit listed a container's two hand-written LinkedIn pixels and silently
+    skipped its two native ones, which reads as the model having missed them.
+    Its only parameter is `id`.
+    """
+    existing = tag(83, "Pixel_Linkedin_Acredita", "bzi", {"id": "7101604"})
+    result = collect_conflicts(
+        "bzi", {"id": "7101604"}, "LinkedIn Insight", [existing], context()
+    )
+    check(
+        "initialisation" in kinds(result),
+        f"a built-in vendor tag must count as a base tag, got {kinds(result)}",
+    )
+
+
+def test_a_built_in_vendor_tag_compares_with_the_hand_written_copy():
+    """The same partner id, one native and one pasted, is one pixel twice."""
+    manual = tag(
+        307,
+        "LinkedIn - Pageview",
+        "html",
+        {"html": '<script>_linkedin_partner_id = "7101604";</script>'},
+    )
+    result = collect_conflicts(
+        "bzi", {"id": "7101604"}, "LinkedIn Insight", [manual], context()
+    )
+    check(
+        "initialisation" in kinds(result),
+        f"native and hand-written must compare, got {kinds(result)}",
+    )
+
+
+def test_a_different_partner_id_is_not_a_duplicate():
+    existing = tag(83, "LinkedIn A", "bzi", {"id": "7101604"})
+    result = collect_conflicts(
+        "bzi", {"id": "5192844"}, "LinkedIn B", [existing], context()
+    )
+    check(result["clean"], f"two partner ids are two accounts, got {kinds(result)}")
+
+
+ROUTED_CONTEXT = dict(
+    platform_by_type={},
+    template_hints={},
+    constants={},
+    template_roles={},
+    variable_candidates={"[ED]ID-Metrica-Estados": {"G-STE61FKTJH", "G-ZXLCXNRE56"}},
+)
+
+
+def routed_google_tag(send_page_view=None):
+    tables = (
+        [settings_table("configSettingsTable", {"send_page_view": send_page_view})]
+        if send_page_view is not None
+        else []
+    )
+    return tag(
+        34,
+        "[ED] Tag - Estados",
+        "googtag",
+        {"tagId": "{{[ED]ID-Metrica-Estados}}"},
+        tables=tables,
+    )
+
+
+def test_a_base_tag_routed_by_lookup_still_sends_the_page_view():
+    """Reported live: the page_view tag was created with no conflict at all.
+
+    The Google Tag's destination is a lookup table, so its account never
+    matched the literal id being requested, and the rule that should have
+    stopped it never fired.
+    """
+    for switch in (None, "true"):
+        result = collect_conflicts(
+            "gaawe",
+            {"measurementId": "G-STE61FKTJH", "eventName": "page_view"},
+            "GA4 - page_view",
+            [routed_google_tag(switch)],
+            ROUTED_CONTEXT,
+        )
+        check(
+            "already_sent_by_a_base_tag" in kinds(result),
+            f"send_page_view={switch!r} means the page view is sent -- got {kinds(result)}",
+        )
+
+
+def test_a_routed_base_tag_with_the_switch_off_allows_the_page_view_tag():
+    result = collect_conflicts(
+        "gaawe",
+        {"measurementId": "G-STE61FKTJH", "eventName": "page_view"},
+        "GA4 - page_view",
+        [routed_google_tag("false")],
+        ROUTED_CONTEXT,
+    )
+    check(
+        "already_sent_by_a_base_tag" not in kinds(result),
+        f"with the switch off the event tag is the fix, got {kinds(result)}",
+    )
+
+
+def test_a_lookup_conflict_must_agree_on_the_whole_identity():
+    """Reported live: a conflict was raised for a different measurement id.
+
+    A lookup supplies one field. For `gaawe` that is `measurementId`, and
+    `eventName` still has to match -- otherwise a page_view tag reports a
+    conflict with every event tag routed through the same table, whatever
+    event each one actually sends.
+    """
+    other_event = tag(
+        152,
+        "GA4 - Evento - Coleta",
+        "gaawe",
+        {"measurementId": "{{[ED]ID-Metrica-Estados}}", "eventName": "coleta"},
+    )
+    result = collect_conflicts(
+        "gaawe",
+        {"measurementId": "G-STE61FKTJH", "eventName": "page_view"},
+        "GA4 - page_view",
+        [other_event],
+        ROUTED_CONTEXT,
+    )
+    check(
+        "possible_duplicate_via_variable" not in kinds(result),
+        f"a different event is not a duplicate, got {kinds(result)}",
+    )
+
+
+def test_the_same_event_routed_through_the_lookup_is_a_conflict():
+    twin = tag(
+        152,
+        "GA4 - page_view - Estados",
+        "gaawe",
+        {"measurementId": "{{[ED]ID-Metrica-Estados}}", "eventName": "page_view"},
+    )
+    result = collect_conflicts(
+        "gaawe",
+        {"measurementId": "G-STE61FKTJH", "eventName": "page_view"},
+        "GA4 - page_view - AC",
+        [twin],
+        ROUTED_CONTEXT,
+    )
+    check(
+        "possible_duplicate_via_variable" in kinds(result),
+        f"the same event through the same table must be raised, got {kinds(result)}",
+    )
+
+
+def test_a_duplicate_conversion_blocks_on_any_trigger():
+    """Reported live: the duplicate was created because its trigger differed.
+
+    A second GA4 `select_item` on a different list is ordinary work. A second
+    Google Ads conversion with the same id and label is the same conversion
+    action counted twice, and Google Ads cannot tell the two tags apart.
+    """
+    existing = tag(
+        54,
+        "Ads - Amplifica",
+        "awct",
+        {"conversionId": "796268201", "conversionLabel": "gLHaCMbrsJIBEKmt2PsC"},
+        triggers=["11"],
+    )
+    result = collect_conflicts(
+        "awct",
+        {"conversionId": "796268201", "conversionLabel": "gLHaCMbrsJIBEKmt2PsC"},
+        "Ads - Amplifica (copy)",
+        [existing, LINKER, ADS_BASE],
+        context(),
+        firing_trigger_ids=["99"],
+    )
+    check(
+        not result["clean"],
+        f"a duplicate conversion must block whatever it fires on, got {kinds(result)}",
+    )
+
+
+def test_a_floodlight_duplicate_also_blocks_on_any_trigger():
+    existing = tag(
+        1,
+        "FL - Purchase",
+        "flc",
+        {"advertiserId": "13520834", "groupTag": "sale", "activityTag": "purch0"},
+        triggers=["11"],
+    )
+    result = collect_conflicts(
+        "flc",
+        {"advertiserId": "13520834", "groupTag": "sale", "activityTag": "purch0"},
+        "FL - Purchase (copy)",
+        [existing, LINKER],
+        context(),
+        firing_trigger_ids=["99"],
+    )
+    check(not result["clean"], "the same activity twice must block on any trigger")
+
+
+def test_a_ga4_event_on_a_different_trigger_still_only_asks():
+    """The downgrade survives where it belongs: a second placement of an event."""
+    existing = tag(
+        1,
+        "GA4 - select_item - list A",
+        "gaawe",
+        {"measurementId": "G-Y0WWB1BJPJ", "eventName": "select_item"},
+        triggers=["11"],
+    )
+    result = collect_conflicts(
+        "gaawe",
+        {"measurementId": "G-Y0WWB1BJPJ", "eventName": "select_item"},
+        "GA4 - select_item - list B",
+        [existing],
+        context(),
+        firing_trigger_ids=["99"],
+    )
+    check(
+        result["clean"],
+        f"a second placement of a GA4 event must not block, got {kinds(result)}",
+    )
+
+
+# ===========================================================================
+# 13. Working in containers this project has never seen
+# ===========================================================================
+def test_a_vendor_tag_type_nobody_named_is_still_a_base_tag():
+    """No hardcoded list of built-in types is ever complete.
+
+    GTM ships built-in tag types for vendors that come and go, and this project
+    has to work in containers it has never seen. The rule is structural rather
+    than enumerated: not Google's own, not a template, not script. Such a tag
+    is compared with others of its own type and appears in the inventory. Only
+    the vendor's NAME is missing, and no comparison needs it.
+    """
+    existing = tag(
+        1, "Some vendor", "vendor_type_from_2027", {"accountKey": "ABC12345XYZ"}
+    )
+    result = collect_conflicts(
+        "vendor_type_from_2027",
+        {"accountKey": "ABC12345XYZ"},
+        "Some vendor (copy)",
+        [existing],
+        context(),
+    )
+    check(
+        "initialisation" in kinds(result),
+        f"an unnamed vendor type must still compare, got {kinds(result)}",
+    )
+
+
+def test_two_accounts_of_an_unnamed_vendor_are_not_duplicates():
+    existing = tag(
+        1, "Some vendor A", "vendor_type_from_2027", {"accountKey": "ABC12345XYZ"}
+    )
+    result = collect_conflicts(
+        "vendor_type_from_2027",
+        {"accountKey": "ZZZ99999QQQ"},
+        "Some vendor B",
+        [existing],
+        context(),
+    )
+    check(result["clean"], f"two accounts are two accounts, got {kinds(result)}")
+
+
+def test_a_setting_held_in_a_variable_is_read():
+    """Settings can live one indirection away from the tag.
+
+    A governed container keeps a Google Tag's configuration in a `gtcs`
+    variable so twenty tags share it. Reading only the tag's own table sees an
+    empty configuration and concludes `send_page_view` is absent -- the same
+    failure as before, one level further out.
+    """
+    routed = tag(
+        34,
+        "Google Tag",
+        "googtag",
+        {"tagId": "G-Y0WWB1BJPJ", "configSettingsVariable": "{{Shared config}}"},
+    )
+    result = collect_conflicts(
+        "gaawe",
+        {"measurementId": "G-Y0WWB1BJPJ", "eventName": "page_view"},
+        "GA4 - page_view",
+        [routed],
+        context(settings_variables={"Shared config": {"send_page_view": "false"}}),
+    )
+    check(
+        result["clean"],
+        f"the switch lives in the variable and says false, got {kinds(result)}",
+    )
+
+
+def test_a_settings_variable_that_leaves_the_switch_on_still_blocks():
+    routed = tag(
+        34,
+        "Google Tag",
+        "googtag",
+        {"tagId": "G-Y0WWB1BJPJ", "configSettingsVariable": "{{Shared config}}"},
+    )
+    result = collect_conflicts(
+        "gaawe",
+        {"measurementId": "G-Y0WWB1BJPJ", "eventName": "page_view"},
+        "GA4 - page_view",
+        [routed],
+        context(settings_variables={"Shared config": {"server_container_url": "https://x"}}),
+    )
+    check(
+        "already_sent_by_a_base_tag" in kinds(result),
+        f"nothing turned it off, so the page view is sent, got {kinds(result)}",
     )
 
 

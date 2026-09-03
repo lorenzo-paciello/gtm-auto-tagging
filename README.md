@@ -5,6 +5,126 @@ of a Google Tag Manager container, guided by a versioned Markdown documentation
 set. Built on the [Google ADK](https://google.github.io/adk-docs/), and model
 agnostic — Gemini, Claude, GPT, or a local model.
 
+It talks to the GTM API as you, in a **workspace only**: it never publishes and
+has no delete tool. Ask it in plain language; it plans, shows you the plan, and
+writes after you agree.
+
+```
+> Create the GA4 purchase event reading value and currency from the dataLayer
+
+  ✓ check_tagging_prerequisites(ga4)  → Google Tag G-XXXXXXX present
+  ✓ preview_tag_conflicts             → nothing equivalent exists
+    Plan: 1 trigger (Custom Event: purchase), 1 tag (GA4 - Event - purchase)
+    Proceed? y
+  ✓ created trigger 41, tag 512
+```
+
+```
+> Audit my container
+
+  180 tags, 37 accounts initialised across Google, Meta, TikTok,
+  Pinterest and LinkedIn.
+
+  [high]   Meta Pixel 156914648903155 initialised twice (tags 258, 500)
+  [high]   Meta Pixel 920027463470024 initialised twice (tags 267, 503)
+  [medium] 3 Conversion Linkers — keep exactly one
+```
+
+## What it will not do
+
+Refusing to add a duplicate is the point of the project, so it is worth being
+plain about the limits that come with that:
+
+- **Web containers.** Server-side containers (clients, transformations) are not
+  covered.
+- **It cannot install a community template.** The API has no method for it; the
+  agent tells you which one to add from the gallery and asks for the account id.
+- **Template detection is heuristic.** A community template's API type names no
+  vendor, so attribution weighs several signals and reports its confidence.
+  Treat `uncertain` as "ask", not as "absent".
+- **Runtime values are unknowable.** A Custom JavaScript variable or a dataLayer
+  value cannot be resolved without running the container, and the agent says so
+  rather than guessing.
+
+## Installation
+
+Python 3.10 or newer.
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+```bash
+# macOS / Linux
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### GTM credentials
+
+1. In the Google Cloud Console, enable the **Tag Manager API** and create an
+   OAuth 2.0 credential of type *Desktop app*.
+2. Download the JSON to `credentials/client_secret.json`.
+3. Copy `.env.example` to `.env` and fill in `GTM_ACCOUNT_ID`,
+   `GTM_CONTAINER_ID` and `GTM_WORKSPACE_ID`.
+
+The ids are in the GTM URL:
+
+```
+tagmanager.google.com/#/container/accounts/<ACCOUNT_ID>/containers/<CONTAINER_ID>/workspaces/<WORKSPACE_ID>
+```
+
+On the first API call, a browser opens for OAuth consent and the token is
+cached in `credentials/token.pickle`.
+
+### Model provider
+
+Set three variables in `.env`. No code changes are needed to switch providers.
+
+```bash
+# Google AI Studio (default, free tier available)
+GTM_MODEL_PROVIDER=google
+GOOGLE_API_KEY=...
+GTM_MODEL_FAST=gemini-3.1-flash-lite
+GTM_MODEL_REASONING=gemini-3.1-flash-lite
+```
+
+```bash
+# Anthropic  (pip install anthropic)
+GTM_MODEL_PROVIDER=anthropic
+ANTHROPIC_API_KEY=sk-ant-...
+GTM_MODEL_FAST=claude-haiku-4-5
+GTM_MODEL_REASONING=claude-opus-5
+```
+
+```bash
+# OpenAI / Azure / Ollama / Bedrock  (pip install litellm)
+GTM_MODEL_PROVIDER=litellm
+OPENAI_API_KEY=sk-...
+GTM_MODEL_FAST=openai/gpt-4o-mini
+GTM_MODEL_REASONING=openai/gpt-4o
+```
+
+See **[docs/model_providers.md](docs/model_providers.md)** for every provider,
+pricing, per-role guidance, and what a model must support to run this project.
+
+## Usage
+
+```powershell
+adk web             # chat UI in the browser
+adk run gtm_agent   # terminal
+```
+
+Example requests:
+
+- "What's in my container today?" → `tags_listing_agent`
+- "Create the purchase event reading from the dataLayer" → `tags_creator_agent`
+- "Organize everything into folders by tool" → `container_organizer_agent`
+- "Audit my container" → `auditor_agent`
+- "I want to document my ecommerce events" → `default-docs-builder` skill
+
 ## Architecture
 
 ```
@@ -64,7 +184,7 @@ reports it as fired, and no data is collected.
 | Google Ads Conversion / Remarketing | Google Tag with an `AW-` destination | **high** |
 | Floodlight (`flc` / `fls`) | Conversion Linker (`gclidw`) | **blocking** |
 | Floodlight via Google Tag | Google Tag with a `DC-` destination | recommended |
-| Meta, TikTok, Pinterest, LinkedIn, Snapchat, X, Reddit, Microsoft Ads, Criteo | that platform's base pixel | **blocking** / **high** |
+| A third-party media event tag (35 platforms) | that platform's base pixel — *if* it has one | **blocking** / **high** |
 | Any advertising tag | Consent Initialization trigger | recommended |
 
 **Destination, not just presence.** A Google Tag's destination is the prefix of
@@ -170,7 +290,8 @@ and the vendor's own `help` / `valueHint` text — verified lossless across all
 64 parameters of the three official templates.
 
 The one part that *is* a fixed registry is platform detection in
-`media_platforms.py` (nine platforms, by gallery owner and parameter names),
+`media_platforms.py` (35 platforms, by gallery owner, initialisation snippet
+and parameter names),
 which powers the "does a setup tag already exist" check. A template outside
 that list still works for tag creation; it just does not get the automatic
 prerequisite check. Adding one is a single registry entry.
@@ -209,77 +330,6 @@ The second form must be sent as a `tagReference` rather than a template string,
 which flat JSON cannot express — `create_tag` applies that conversion
 automatically.
 
-## Installation
-
-```powershell
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-```
-
-### GTM credentials
-
-1. In the Google Cloud Console, enable the **Tag Manager API** and create an
-   OAuth 2.0 credential of type *Desktop app*.
-2. Download the JSON to `credentials/client_secret.json`.
-3. Copy `.env.example` to `.env` and fill in `GTM_ACCOUNT_ID`,
-   `GTM_CONTAINER_ID` and `GTM_WORKSPACE_ID`.
-
-The ids are in the GTM URL:
-
-```
-tagmanager.google.com/#/container/accounts/<ACCOUNT_ID>/containers/<CONTAINER_ID>/workspaces/<WORKSPACE_ID>
-```
-
-On the first API call, a browser opens for OAuth consent and the token is
-cached in `credentials/token.pickle`.
-
-### Model provider
-
-Set three variables in `.env`. No code changes are needed to switch providers.
-
-```bash
-# Google AI Studio (default, free tier available)
-GTM_MODEL_PROVIDER=google
-GOOGLE_API_KEY=...
-GTM_MODEL_FAST=gemini-3.1-flash-lite
-GTM_MODEL_REASONING=gemini-3.1-flash-lite
-```
-
-```bash
-# Anthropic  (pip install anthropic)
-GTM_MODEL_PROVIDER=anthropic
-ANTHROPIC_API_KEY=sk-ant-...
-GTM_MODEL_FAST=claude-haiku-4-5
-GTM_MODEL_REASONING=claude-opus-5
-```
-
-```bash
-# OpenAI / Azure / Ollama / Bedrock  (pip install litellm)
-GTM_MODEL_PROVIDER=litellm
-OPENAI_API_KEY=sk-...
-GTM_MODEL_FAST=openai/gpt-4o-mini
-GTM_MODEL_REASONING=openai/gpt-4o
-```
-
-See **[docs/model_providers.md](docs/model_providers.md)** for every provider,
-pricing, per-role guidance, and what a model must support to run this project.
-
-## Usage
-
-```powershell
-adk web             # chat UI in the browser
-adk run gtm_agent   # terminal
-```
-
-Example requests:
-
-- "What's in my container today?" → `tags_listing_agent`
-- "Create the purchase event reading from the dataLayer" → `tags_creator_agent`
-- "Organize everything into folders by tool" → `container_organizer_agent`
-- "Audit my container" → `auditor_agent`
-- "I want to document my ecommerce events" → `default-docs-builder` skill
-
 ## Safety
 
 The project is designed not to damage a production container:
@@ -290,6 +340,7 @@ The project is designed not to damage a production container:
 | Never deletes | there is no delete tool |
 | Draft only | every write lands in the workspace |
 | Confirmation before writing | the prompts require a user-approved plan |
+| Never writes a duplicate | `create_tag` and `update_tag` compare the payload with the whole container first and refuse; only the user can override |
 | Simulation mode | `GTM_DRY_RUN=true` returns the payload without calling the API |
 | Safe concurrent writes | updates use `fingerprint` (optimistic locking) |
 
@@ -322,7 +373,9 @@ gtm-auto-tagging/
 │   ├── test_references.py         # {{Variable}} integrity, firing triggers
 │   ├── test_identifiers.py        # destination ids, near-miss references
 │   ├── test_tool_registry.py      # no tool registered twice per agent
-│   └── test_tag_identity.py       # duplicates across implementations
+│   ├── test_tag_identity.py       # duplicates across implementations
+│   ├── test_vendor_registry.py    # a real snippet for all 35 platforms
+│   └── test_creation_gate.py      # what blocks a write, and what must not
 └── gtm_agent/
     ├── agent.py             # root agent
     ├── config.py            # settings from .env
@@ -343,14 +396,13 @@ gtm-auto-tagging/
     │   ├── gtm_templates.py    # community templates: cvt_ types + param contracts
     │   ├── tag_specs.py        # verified API specs + pre-flight validation
     │   ├── references.py       # {{Variable}} resolution against the workspace
-    │   ├── identifiers.py      # destination-id comparison, name collisions
+    │   ├── identifiers.py      # what a variable is, and what it could resolve to
     │   ├── gtm_identity_audit.py # check_id_consistency
-    │   ├── tag_identity.py     # (product, account, action) fingerprint
-    │   ├── media_platforms.py  # THE registry: 35 platforms
+    │   ├── tag_identity.py     # what a tag configures, and what identifies it
+    │   ├── media_platforms.py  # THE registry: 35 platforms + GTM's own types
     │   ├── vendor_snippets.py  # the matching engine over that registry
     │   ├── gtm_duplicates.py   # the audit: what is already duplicated
     │   ├── gtm_creation_gate.py # the pre-write check: would this duplicate?
-    │   ├── media_platforms.py  # third-party pixel detection registry
     │   └── docs_tools.py       # documentation read and write
     └── skills/
         └── default-docs-builder/   # skill for building the user's own docs
@@ -361,8 +413,9 @@ gtm-auto-tagging/
 **Read** — `list_accounts`, `list_containers`, `list_workspaces`, `list_tags`,
 `get_tag`, `list_triggers`, `list_built_in_triggers`, `list_variables`,
 `list_built_in_variables`, `list_folders`, `list_templates`,
-`get_template_spec`, `check_tagging_prerequisites`, `find_broken_references`, `check_id_consistency`,
-`find_duplicate_tags`, `get_workspace_status`, `get_container_snapshot`
+`get_template_spec`, `check_tagging_prerequisites`, `find_broken_references`,
+`check_id_consistency`, `find_duplicate_tags`, `preview_tag_conflicts`,
+`get_workspace_status`, `get_container_snapshot`
 
 **Write** — `get_entity_spec`, `create_tag`, `update_tag`, `create_trigger`,
 `create_variable`, `rename_entity`
@@ -520,6 +573,13 @@ one the agent may set on its own. Four kinds block:
 | `possible_duplicate_via_variable` | yes | an existing tag's id is a lookup table that can resolve to this one |
 | `identical_script` | yes | the same script, even for a vendor no registry names |
 | `duplicate_event_for_account` | on overlapping triggers | this platform already sends this event for this account |
+
+Conversions and base tags (`awct`, `sp`, `flc`, `fls`, `googtag`, `gaawc`,
+`gclidw`) block on **any** trigger. Making the identity comparison
+trigger-aware was right for a GA4 event placed on a second interaction and
+wrong for a conversion action, which the ad platform cannot tell apart from its
+twin — a duplicate Google Ads conversion was created live before that
+distinction existed.
 | `same_identifier` / `missing_prerequisite` / `prefer_template` | no | context, an absent foundation, a template that should be used instead |
 
 `already_sent_by_a_base_tag` is the one no base-tag comparison can find. The
@@ -551,6 +611,36 @@ would have blocked every Floodlight tag a user ever created. `IDENTITY_KEYS`
 now states what actually identifies each type, and anything unlisted falls back
 to full parameter equality, which cannot over-match.
 
+### GTM's own vendor tag types
+
+Not every third-party tag is a template or a Custom HTML snippet. GTM ships
+built-in types for several vendors — LinkedIn Insight is `bzi`, its partner id
+in a parameter called simply `id`. They carry no gallery reference and no
+vendor snippet, so a survey built on templates and script patterns misses them:
+a container's two native LinkedIn tags went unlisted while its two hand-written
+ones were found.
+
+`NATIVE_MEDIA_TYPES` names the ones it can, but **that list does not have to be
+complete**. `is_unrecognised_vendor_type` catches the rest structurally — not
+Google's own type, not `cvt_`, not script — so a vendor type nobody here has
+heard of is still read as a base tag, still compared with others of its type,
+and still inventoried. The named entry only adds the vendor's label, its setup
+guidance, and its place in the prerequisite check.
+
+### Settings that live somewhere else
+
+A tag's configuration sits at three levels, and containers use all three:
+
+1. top-level parameters
+2. rows of a nested table (`configSettingsTable`, `fieldsToSet`)
+3. rows of a **settings variable** the tag merely references
+   (`configSettingsVariable` → a `gtcs` variable)
+
+Level 2 was missed once and told a user their page_view tag would double-count
+on a property where they had just turned `send_page_view` off. Level 3 is the
+same mistake one indirection further out, and governed containers use it
+precisely so twenty tags can share one configuration.
+
 ### Coping with vendors nobody registered
 
 The blocking kinds lean on the registry. The advisory one deliberately does
@@ -575,8 +665,10 @@ everywhere:
 Without that distinction the agent would invent a limitation — telling a user
 their Awin sale tag is broken because no Awin "base tag" exists.
 
-### Traps this had to get right Patterns were originally matched against a
-`json.dumps` of the parameters, which escapes `"` as `\"` — every
+### Traps this had to get right
+
+Patterns were originally matched against a `json.dumps` of the parameters,
+which escapes `"` as `\"` — every
 double-quoted snippet silently stopped matching, hiding all the LinkedIn tags
 in a container while Meta kept working because its snippet uses single quotes.
 `eventName: "standard"` in Meta's template is a **mode selector**, not the
@@ -630,6 +722,33 @@ neglected) covering every flow.
 | `GTM_SKILLS_DIR` | `gtm_agent/skills` | |
 | `GTM_DRY_RUN` | `false` | `true` simulates writes |
 
+## Contributing
+
+The two things most likely to need extending, and how:
+
+**A media platform.** One entry in
+[gtm_agent/tools/media_platforms.py](gtm_agent/tools/media_platforms.py): the
+label, its `event_model`, the gallery markers, and regexes for the
+initialisation call capturing the account id as group 1. Then add a realistic
+snippet to `SNIPPETS` in
+[tests/test_vendor_registry.py](tests/test_vendor_registry.py), which checks
+that the base snippet is recognised, that **no other** platform matches it, and
+that the event snippet is not read as an initialisation.
+
+**Documentation.** `default_docs/` is plain Markdown, read by the agents at run
+time. Editing it changes behaviour without touching code.
+
+Run the tests before opening a pull request — they need no network and no
+credentials:
+
+```powershell
+Get-ChildItem tests\*.py | ForEach-Object { .venv\Scripts\python.exe $_.FullName }
+```
+
+```bash
+for f in tests/*.py; do ./.venv/bin/python "$f"; done
+```
+
 ## Roadmap
 
 - Server-side container support (`serverPageview`, clients, transformations)
@@ -639,4 +758,4 @@ neglected) covering every flow.
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).

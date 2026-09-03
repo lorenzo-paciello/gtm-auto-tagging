@@ -170,6 +170,27 @@ def find_near_miss_references(
 
 
 
+#: Variables that hold a block of tag settings rather than a value. A Google
+#: Tag can keep its whole configuration -- `send_page_view` included -- in a
+#: `gtcs` variable referenced by `configSettingsVariable`, and a GA4 event its
+#: parameters in a `gtes` one. A check that reads only the tag sees an empty
+#: settings table and concludes the setting is absent.
+_SETTINGS_TYPES = ("gtcs", "gtes")
+
+
+def settings_variable_values(
+    variables: list[dict[str, Any]],
+) -> dict[str, dict[str, str]]:
+    """Settings variable name -> the `name: value` rows it holds."""
+    from .gtm_client import setting_values
+
+    return {
+        variable["name"]: setting_values(variable.get("parameters") or {})
+        for variable in variables
+        if variable.get("type") in _SETTINGS_TYPES and variable.get("name")
+    }
+
+
 #: Variable types whose possible outputs can be read without running the
 #: container. A lookup table cannot be reduced to one value, but the set of
 #: values it can produce is known, and that is enough to ask "could this

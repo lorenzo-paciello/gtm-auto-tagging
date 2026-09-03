@@ -98,6 +98,9 @@ Seed it with the states worth catching. Each row is a real failure mode:
 | A CMP firing on All Pages instead of Consent Initialization | recommended — runs too late |
 | A paused tag with no note | low |
 | Everything outside folders | medium |
+| One pixel installed twice: once as a template, once as Custom HTML | critical — the commonest duplication there is, and listing by type never shows it |
+| A `gaawe` named `page_view` beside a Google Tag for the same property | the page view is counted twice; no base-tag comparison finds this one |
+| Two Google Ads conversions with the same id and label, on different triggers | the same conversion action counted twice |
 
 Then ask, in order:
 
@@ -108,6 +111,13 @@ Then ask, in order:
    before the tags that use them, base tags before event tags.
 3. **"Organize the workspace"** — folders by media, nothing invented.
 4. **"Audit again"** — the same findings must not reappear.
+5. **Try to create a duplicate on purpose** — ask for a tag you know already
+   exists: the same Meta pixel, the same Google Ads conversion, a `page_view`
+   event for a property whose Google Tag already sends it. Each must come back
+   **refused, with nothing written**, naming the existing tag. Then ask again
+   and approve it: it should be created and the reason recorded in the notes.
+   A duplicate that is created and only then reported is the failure this check
+   exists to prevent.
 
 Between steps 1 and 4, run:
 
@@ -125,6 +135,7 @@ finding:
 
 ```
 check_tagging_prerequisites(product="all")
+find_duplicate_tags()
 find_broken_references()
 check_id_consistency()
 get_container_snapshot()          # insights

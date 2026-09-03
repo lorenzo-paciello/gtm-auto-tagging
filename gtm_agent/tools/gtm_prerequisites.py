@@ -13,6 +13,8 @@ built-in trigger ids and never the reverse.
 
 from __future__ import annotations
 
+import re
+
 from typing import Any
 from typing import Optional
 
@@ -28,6 +30,7 @@ from .gtm_templates import index_templates
 from .gtm_templates import resolve_tag_type
 from .gtm_templates import template_bootstraps_library
 from .media_platforms import MEDIA_PLATFORMS
+from .media_platforms import NATIVE_MEDIA_TYPES
 from .media_platforms import ambiguous_id_parameters
 from .tag_specs import TAG_SPECS
 from .vendor_snippets import event_signal
@@ -396,6 +399,14 @@ def classify_media_role_for_tag(
     )
 
 
+_ACCOUNT_SHAPE = re.compile(r"^(?:\d{4,20}|[A-Za-z0-9_-]{8,64})$")
+
+
+def _looks_like_an_account(value: Any) -> bool:
+    """Loose enough for any vendor, strict enough to skip `true` and `_gcl`."""
+    return bool(_ACCOUNT_SHAPE.match(str(value).strip()))
+
+
 def _detect_media_platforms(
     tags: list[dict[str, Any]], templates: list[dict[str, Any]]
 ) -> dict[str, dict[str, Any]]:
@@ -436,9 +447,14 @@ def _detect_media_platforms(
         param_keys = set(flat) | set(setting_values(flat))
         text_blob = " ".join(scalar_values(flat)).lower()
 
-        # A tag whose type maps to a known template belongs to that platform and
-        # to no other, however its parameters happen to be named.
-        mapped_platform = type_to_platform.get(tag_type)
+        # A tag whose type maps to a known template belongs to that platform
+        # and to no other, however its parameters happen to be named. GTM's own
+        # built-in vendor types (LinkedIn's `bzi`) say the same thing outright,
+        # and were previously invisible here: a container's two native LinkedIn
+        # tags went unreported while its two hand-written ones were found.
+        mapped_platform = type_to_platform.get(tag_type) or NATIVE_MEDIA_TYPES.get(
+            tag_type
+        )
 
         for key, platform in MEDIA_PLATFORMS.items():
             if mapped_platform and mapped_platform != key:
@@ -448,7 +464,11 @@ def _detect_media_platforms(
             weak: list[str] = []
 
             if mapped_platform == key:
-                strong.append(f"gallery template ({tag_type})")
+                strong.append(
+                    f"built-in {tag_type} tag type"
+                    if tag_type in NATIVE_MEDIA_TYPES
+                    else f"gallery template ({tag_type})"
+                )
 
             base_marker = init_signal(key, text_blob)
             if base_marker:
@@ -483,6 +503,14 @@ def _detect_media_platforms(
                 (p for p in preferred + list(platform.id_parameters) if p in param_keys),
                 specific_param,
             )
+            if id_param is None and tag_type in NATIVE_MEDIA_TYPES:
+                # A built-in type names its own parameter -- LinkedIn's `bzi`
+                # calls the partner id simply `id`. Read whichever value is
+                # shaped like an account rather than hardcoding one name per
+                # type, which has been wrong every time it was guessed.
+                id_param = next(
+                    (k for k, v in flat.items() if _looks_like_an_account(v)), None
+                )
 
             entry = {
                 "tagId": tag.get("tagId"),
@@ -495,8 +523,14 @@ def _detect_media_platforms(
                 "firingTriggerId": tag.get("firingTriggerId", []),
             }
 
-            role = _classify_media_role(
-                platform, flat, name, base_marker, event_marker, hints
+            # A built-in vendor type IS the base tag; there is no event
+            # variant of it to confuse it with.
+            role = (
+                "setup"
+                if tag_type in NATIVE_MEDIA_TYPES
+                else _classify_media_role(
+                    platform, flat, name, base_marker, event_marker, hints
+                )
             )
             bucket = {"setup": "setup_tags", "event": "event_tags"}.get(
                 role, "unclassified"

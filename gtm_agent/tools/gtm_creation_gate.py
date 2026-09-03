@@ -112,6 +112,21 @@ _PAGE_VIEW_SWITCHES = (
     "send_page_view_event",
 )
 
+#: Types whose identity is a duplicate wherever it fires. A second GA4
+#: `select_item` on a different list is ordinary work; a second Google Ads
+#: conversion with the same id and label is the same conversion action counted
+#: twice, and Google Ads cannot tell the two tags apart. Reported live: a
+#: duplicate conversion passed the gate because its trigger differed.
+_IDENTITY_ALWAYS_BLOCKS = {
+    "awct",
+    "sp",
+    "flc",
+    "fls",
+    "googtag",
+    "gaawc",
+    "gclidw",
+}
+
 #: What each product needs underneath it. The prerequisite check is the
 #: authority; this is the reminder at the moment of writing, so a plan that
 #: forgot it does not produce a tag that silently sends nothing.
@@ -187,14 +202,39 @@ def _possible_values(
     return {text} if text else set()
 
 
-def _readable(flat: dict[str, Any]) -> dict[str, Any]:
-    """Top-level parameters plus the rows of any nested settings table.
+#: Parameters that point at a variable holding a block of settings.
+_SETTINGS_REFERENCES = (
+    "configSettingsVariable",
+    "eventSettingsVariable",
+    "userPropertiesVariable",
+)
 
-    Half a tag's configuration is not at the top level: a Google Tag keeps
-    `send_page_view` in `configSettingsTable`, a GA4 Configuration in
-    `fieldsToSet`. The top level wins where a name appears in both.
+
+def _readable(
+    flat: dict[str, Any], settings_variables: Optional[dict[str, dict[str, str]]] = None
+) -> dict[str, Any]:
+    """Everything the tag configures, wherever the value actually lives.
+
+    Three levels, because GTM offers three and containers use all of them:
+
+    1. top-level parameters
+    2. rows of a nested settings table (`configSettingsTable`, `fieldsToSet`)
+    3. rows of a **settings variable** the tag merely references
+
+    Level 2 was missed once and told a user their page_view tag would
+    double-count on a property where they had just turned `send_page_view`
+    off. Level 3 is the same mistake one indirection further out, and it is
+    common in governed containers: the settings live in one variable so that
+    twenty tags share them.
     """
-    return {**setting_values(flat), **flat}
+    from_variables: dict[str, Any] = {}
+    for key in _SETTINGS_REFERENCES:
+        reference = str(flat.get(key, "")).strip()
+        if settings_variables and _REFERENCE_ONLY.match(reference):
+            from_variables.update(
+                settings_variables.get(reference[2:-2].strip(), {})
+            )
+    return {**from_variables, **setting_values(flat), **flat}
 
 
 def _identity_of(
@@ -279,7 +319,11 @@ def _body_of(config: dict[str, Any]) -> str:
     return "\n".join(scalar_values(config))
 
 
-def _sends_its_own_page_view(tag: dict[str, Any], constants: dict[str, str]) -> bool:
+def _sends_its_own_page_view(
+    tag: dict[str, Any],
+    constants: dict[str, str],
+    settings_variables: Optional[dict[str, dict[str, str]]] = None,
+) -> bool:
     """A GA4 base tag sends `page_view` unless it was told not to.
 
     The switch is almost never a top-level parameter, so this reads the nested
@@ -287,7 +331,7 @@ def _sends_its_own_page_view(tag: dict[str, Any], constants: dict[str, str]) -> 
     guessing "off" would let a real duplicate through, and on is what GTM
     applies.
     """
-    settings = _readable(parameters_to_dict(tag.get("parameter")))
+    settings = _readable(parameters_to_dict(tag.get("parameter")), settings_variables)
     for key in _PAGE_VIEW_SWITCHES:
         if key not in settings:
             continue
@@ -421,6 +465,7 @@ def collect_conflicts(
 
     constants = context.get("constants", {})
     candidates = context.get("variable_candidates", {})
+    settings_vars = context.get("settings_variables", {})
     tags_by_name = {str(t.get("name", "")).strip().lower(): t for t in tags}
     triggers = {str(t) for t in (firing_trigger_ids or [])}
 
@@ -473,21 +518,38 @@ def collect_conflicts(
                 for tag, init in by_product.get(product, []):
                     if str(tag.get("tagId")) in accounted:
                         continue
-                    if init.account not in identifiers:
+                    # The destination is often a lookup table rather than a
+                    # literal. Matching only literals let a page_view tag be
+                    # created for a property the routed Google Tag already
+                    # covers -- the tag reported no conflict at all.
+                    covered = _possible_values(init.account, constants, candidates)
+                    matched = covered & identifiers
+                    if not matched:
                         continue
-                    if not _sends_its_own_page_view(tag, constants):
+                    if not _sends_its_own_page_view(tag, constants, settings_vars):
                         continue
+                    routed = init.account not in matched
                     add(
                         "already_sent_by_a_base_tag",
                         True,
-                        f"{init.account} already sends page_view automatically",
+                        f"{', '.join(sorted(matched))} already sends page_view "
+                        "automatically"
+                        + (f" (via {init.account})" if routed else ""),
                         "A Google Tag sends `page_view` to its destination on "
                         "its own -- that is what configuring the destination "
                         "means. A GA4 Event tag named page_view for the same "
                         "measurement id counts every page view twice, in every "
                         "report in the property. It is the right tag to create "
                         "only when the base tag has send_page_view set to "
-                        "false, which this one does not.",
+                        "false, which this one does not."
+                        + (
+                            " This base tag reaches the property through a "
+                            "lookup table, so it covers it on the pages the "
+                            "table matches -- confirm which pages each tag "
+                            "should serve."
+                            if routed
+                            else ""
+                        ),
                         [_entry(tag, identity=init.label)],
                     )
         else:
@@ -530,7 +592,10 @@ def collect_conflicts(
             # configuration and entirely legitimate. The trigger is what
             # separates a copy from a deliberate second placement, so it decides
             # whether this stops the write or merely asks about it.
-            overlapping = _shares_a_trigger(triggers, tag)
+            overlapping = (
+                tag_type in _IDENTITY_ALWAYS_BLOCKS
+                or _shares_a_trigger(triggers, tag)
+            )
             add(
                 "identical_configuration",
                 overlapping,
@@ -609,6 +674,14 @@ def collect_conflicts(
                     continue  # a constant resolves exactly; rule 1 handled it
                 overlap = set(candidates.get(variable, set())) & identifiers
                 if not overlap:
+                    continue
+                # The variable only supplies ONE field. Everything else that
+                # identifies the type still has to match, or a page_view tag
+                # reports a conflict with every other event tag routed through
+                # the same table.
+                if identity_keys and not _rest_of_identity_matches(
+                    identity_keys, key, config, readable, constants, tags_by_name
+                ):
                     continue
                 add(
                     "possible_duplicate_via_variable",
@@ -772,6 +845,32 @@ def collect_conflicts(
             else "No duplication found. Proceed."
         ),
     }
+
+
+def _rest_of_identity_matches(
+    identity_keys: tuple[str, ...],
+    variable_key: str,
+    config: dict[str, Any],
+    existing: dict[str, Any],
+    constants: dict[str, str],
+    tags_by_name: dict[str, Any],
+) -> bool:
+    """Do the identity fields other than the variable's own agree?
+
+    A lookup table supplies one field. For `gaawe` that is `measurementId`, and
+    `eventName` still has to match: without this check, creating a page_view
+    tag reported a conflict with every GA4 event tag routed through the same
+    table, whatever event each one sent.
+    """
+    candidate = _readable(config)
+    for other in identity_keys:
+        if other == variable_key:
+            continue
+        left = _resolve(candidate.get(other, ""), constants, tags_by_name).lower()
+        right = _resolve(existing.get(other, ""), constants, tags_by_name).lower()
+        if left != right:
+            return False
+    return True
 
 
 def _foundation_missing(

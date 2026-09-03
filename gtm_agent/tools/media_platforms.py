@@ -809,6 +809,35 @@ MEDIA_PLATFORMS: dict[str, MediaPlatform] = {
 }
 
 
+#: GTM ships built-in tag types for a few third-party vendors, alongside the
+#: community templates. They are neither `cvt_` nor Custom HTML, so nothing in
+#: the gallery-marker or snippet machinery sees them: a container's two
+#: LinkedIn Insight tags were invisible to the audit while its two hand-written
+#: ones were found, which reads as the model having missed them.
+#:
+#: `bzi` is confirmed against a live container -- its only parameter is `id`,
+#: holding the partner id. The rest are GTM's documented built-ins; an entry
+#: for a type that does not exist simply never matches, so listing them costs
+#: nothing and closes the gap wherever they do.
+#:
+#: **This list does not have to be complete, and never will be.** GTM ships
+#: built-in types for vendors that come and go, and this project runs in
+#: containers nobody here has seen. `tag_identity.is_unrecognised_vendor_type`
+#: catches every type not named here by structure rather than by name -- not
+#: Google's own, not a `cvt_` template, not hand-written script -- so such a
+#: tag is still read as a base tag, still compared with others of its type, and
+#: still listed in the account inventory. What an entry below adds is the
+#: vendor's NAME: a friendly label, the setup guidance, and inclusion in the
+#: prerequisite check. Nothing about duplicate detection depends on it.
+NATIVE_MEDIA_TYPES: dict[str, str] = {
+    "bzi": "linkedin",
+    "twitter_website_tag": "x_twitter",
+    "pntr": "pinterest",
+    "crto": "criteo",
+    "hjtc": "hotjar",
+}
+
+
 def ambiguous_id_parameters() -> set[str]:
     """Parameter names too generic to identify a platform on their own.
 

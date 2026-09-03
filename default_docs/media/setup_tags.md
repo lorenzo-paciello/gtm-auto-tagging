@@ -273,9 +273,34 @@ measurement ids behind one Google Tag -- already covers all 27 properties, and
 a check that resolves only Constants would call a 28th tag for one of them
 clean.
 
-`duplicate_event_for_account` and `identical_configuration` block only when the
-triggers overlap. On different triggers they ask instead: a second placement of
-the same measurement on a separate interaction is ordinary work.
+`duplicate_event_for_account` and, for GA4 events and media tags,
+`identical_configuration` block only when the triggers overlap. On different
+triggers they ask instead: a second placement of the same measurement on a
+separate interaction is ordinary work. **Conversions never get that leniency** --
+the same Google Ads id and label, or the same Floodlight advertiser/group/
+activity, is one conversion action counted twice however it is triggered.
+
+### GTM's own vendor tag types
+
+Not every third-party tag is a community template or a Custom HTML snippet.
+GTM ships built-in types for several vendors -- LinkedIn Insight is `bzi`, with
+its partner id in a parameter simply called `id`. They carry no gallery
+reference and no vendor snippet, so a survey built only on templates and script
+patterns misses them completely, and a container's native LinkedIn tags can go
+unlisted while its hand-written ones are found. Both the prerequisite check and
+the duplication gate read them through `NATIVE_MEDIA_TYPES`; adding a vendor
+type is one entry -- but the list does not have to be complete. A built-in
+type nobody named is still recognised structurally (not Google's own, not a
+template, not script), so it is still read as a base tag and still compared.
+Naming it adds the label, the setup guidance and the prerequisite check.
+
+### Where a setting actually lives
+
+Three levels, and containers use all three: the tag's own parameters, the rows
+of a nested table (`configSettingsTable`, `fieldsToSet`), and the rows of a
+**settings variable** the tag only references (`configSettingsVariable`). When
+you inspect a tag yourself, follow all three before concluding a setting is
+absent -- a value you cannot see is not a value that is not there.
 
 A duplicate is not always a mistake. Two base tags with mutually exclusive
 triggers -- different domains, different environments -- are legitimate, and so
@@ -327,7 +352,8 @@ same pixel twice -- once from the gallery template, once as a script -- with
 nothing reporting it. In one real 180-tag container, 19 of the pixels were
 hand-written.
 
-`find_duplicate_tags()` recognises all nine platforms in three written forms:
+`find_duplicate_tags()` recognises every registered platform in three written
+forms:
 
 | Form | Example |
 | --- | --- |

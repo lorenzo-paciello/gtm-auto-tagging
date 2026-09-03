@@ -13,6 +13,7 @@ from .gtm_client import workspaces
 from .gtm_prerequisites import classify_media_role_for_tag
 from .gtm_templates import index_templates
 from .identifiers import constant_values
+from .identifiers import settings_variable_values
 from .identifiers import variable_value_candidates
 from .tag_identity import PRODUCT_LABELS
 from .tag_identity import conversion_config_of
@@ -59,6 +60,8 @@ def build_identity_context(
         # table routing 27 URL patterns to 27 measurement ids is one tag that
         # already covers 27 properties.
         "variable_candidates": variable_value_candidates(normalized),
+        # A tag's settings can live in a variable instead of in the tag.
+        "settings_variables": settings_variable_values(normalized),
         "template_roles": template_roles,
     }
 

@@ -1,4 +1,4 @@
-# Segredos e credenciais
+# Secrets and credentials
 .env
 credentials/
 *.pickle
@@ -15,11 +15,13 @@ __pycache__/
 venv/
 *.egg-info/
 
-# Documentacao gerada pelo usuario (descomente se nao quiser versionar)
-custom_docs/conventions
-custom_docs/ga4
+# The user's own documentation is theirs, not the project's: a fork carries its
+# organisation's naming conventions and event definitions in here. Only the
+# README explaining the folder is committed.
+custom_docs/*
+!custom_docs/README.md
 
-# Editores
+# Editors
 .vscode/
 .idea/
 
